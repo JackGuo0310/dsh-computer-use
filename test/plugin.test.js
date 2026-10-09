@@ -213,6 +213,32 @@ test('an observation from another window cannot act on this one', async () => {
   await runtime.dispose()
 })
 
+test('a helper crash surfaces to the caller instead of hanging', async () => {
+  const h = harness()
+  const { runtime, helper } = await load(h, { fail: 'inspect' })
+  await assert.rejects(toolOf(h.state, 'safe_win_inspect').execute({ hwnd: 4242 }, execContext()), /helper failure/)
+  await runtime.dispose()
+})
+
+test('unload aborts an in-flight call and drains before releasing the slot', async () => {
+  const h = harness()
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const helper = {
+    closed: false,
+    async call(method) { if (method === 'observe') await gate; return { window: { hwnd: 1, pid: 2, app: 'notepad.exe', title: 'x' }, observationId: 'a'.repeat(32), elements: [] } },
+    async close() { this.closed = true },
+  }
+  const runtime = await startSafeWinProvider(h.ctx, { allowedApps: new Set(ALLOWED), startHelper: async () => helper })
+  const inflight = toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
+  const disposing = runtime.dispose()
+  release()
+  await assert.rejects(inflight)
+  await disposing
+  assert.equal(helper.closed, true, 'the helper closes only after the call settles')
+  assert.deepEqual(h.state.providers, [])
+})
+
 test('an invalid allowlist never reaches the helper', async () => {
   const h = harness()
   await assert.rejects(startSafeWinProvider(h.ctx, {
