@@ -181,7 +181,7 @@ internal static class Program
         if (!entry.Element.Current.IsEnabled || entry.Element.Current.IsOffscreen) throw new InvalidDataException("target is unavailable");
         var current = Describe(entry.Element, out _);
         if (current is null || !current.Matches(entry.Fingerprint)) throw new InvalidDataException("target changed since observation");
-        if (!DescendsFrom(entry.Element, (nint)snapshot.Window.hwnd)) throw new InvalidDataException("target no longer belongs to the observed window");
+        if (!DescendsFrom(entry.Element, (nint)snapshot.Window.hwnd, snapshot.Window.pid)) throw new InvalidDataException("target no longer belongs to the observed window");
         if (action == "Invoke" && entry.Element.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke)) ((InvokePattern)invoke).Invoke();
         else if (action == "Select" && entry.Element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var select)) ((SelectionItemPattern)select).Select();
         else if (action == "Toggle" && entry.Element.TryGetCurrentPattern(TogglePattern.Pattern, out var toggle)) ((TogglePattern)toggle).Toggle();
@@ -191,7 +191,7 @@ internal static class Program
 
     /// Confirms the element still sits under the approved window, so a reparented or
     /// moved control cannot receive an action approved for a different target.
-    private static bool DescendsFrom(AutomationElement element, nint hwnd)
+    private static bool DescendsFrom(AutomationElement element, nint hwnd, int pid)
     {
         var root = AutomationElement.FromHandle(hwnd);
         if (root is null || !root.Current.NativeWindowHandle.Equals(hwnd)) return false;
@@ -205,6 +205,9 @@ internal static class Program
             if (parent is null) return false;
             try
             {
+                // An ancestor owned by another process means the chain crosses out of
+                // the observed application, so the control is not its own.
+                if (parent.Current.ProcessId != pid) return false;
                 if (parent.Current.NativeWindowHandle.Equals(hwnd)) return true;
             }
             catch (ElementNotAvailableException) { return false; }
