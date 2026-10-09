@@ -27,7 +27,7 @@ internal static class Program
             Request request;
             try
             {
-                var line = ReadLine(input);
+                var line = Protocol.ReadLine(input);
                 if (line is null) break;
                 request = Protocol.Parse(line);
             }
@@ -61,30 +61,6 @@ internal static class Program
                 catch (InvalidDataException) { Write(Protocol.Encode(request.Id, null, "response exceeds protocol limits")); }
             }
         }
-    }
-
-    /// Reads one newline-terminated request. Buffering stops at the protocol limit and
-    /// the remaining characters are discarded, so an over-long request is rejected
-    /// without allocating a line of unbounded length.
-    private static string? ReadLine(TextReader input)
-    {
-        var builder = new StringBuilder();
-        var oversized = false;
-        int value;
-        while ((value = input.Read()) >= 0)
-        {
-            if (value != '\n')
-            {
-                if (builder.Length < Protocol.MaxLineLength) builder.Append((char)value);
-                else oversized = true;
-                continue;
-            }
-            if (oversized) throw new InvalidDataException("request exceeds protocol limits");
-            return builder.ToString().TrimEnd('\r');
-        }
-        if (builder.Length == 0) return null;
-        if (oversized) throw new InvalidDataException("request exceeds protocol limits");
-        return builder.ToString();
     }
 
     private static void Diagnostics(string message)

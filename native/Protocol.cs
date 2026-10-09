@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 
 namespace ComputerUse.Helper;
@@ -29,6 +30,31 @@ internal static class Protocol
         var serialized = JsonSerializer.Serialize(new { id, result, error });
         if (serialized.Length > MaxResponseLength) throw new InvalidDataException("response exceeds protocol limits");
         return serialized;
+    }
+
+    /// Reads one newline-terminated request. Buffering stops at the protocol limit
+    /// and the remaining characters are discarded, so an over-long request is
+    /// rejected without allocating a line of unbounded length. Returns null at end
+    /// of input, which is how the caller learns the peer closed the stream.
+    internal static string? ReadLine(TextReader input)
+    {
+        var builder = new StringBuilder();
+        var oversized = false;
+        int value;
+        while ((value = input.Read()) >= 0)
+        {
+            if (value != '\n')
+            {
+                if (builder.Length < MaxLineLength) builder.Append((char)value);
+                else oversized = true;
+                continue;
+            }
+            if (oversized) throw new InvalidDataException("request exceeds protocol limits");
+            return builder.ToString().TrimEnd('\r');
+        }
+        if (builder.Length == 0) return null;
+        if (oversized) throw new InvalidDataException("request exceeds protocol limits");
+        return builder.ToString();
     }
 }
 

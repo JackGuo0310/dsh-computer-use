@@ -26,6 +26,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
+    "test:helper": "dotnet run --project native/tests/ComputerUse.Helper.Tests.csproj -c Release",
+    "test:all": "npm test && npm run test:helper",
     "verify:package": "node scripts/verify-package.mjs",
     "build:helper": "dotnet publish native/ComputerUse.Helper.csproj -c Release -o native/publish --self-contained false",
     "prepack": "npm run build:helper",

@@ -22,4 +22,9 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+<ItemGroup>
+    <!-- The test project has its own csproj and must not be compiled into the helper. -->
+    <Compile Remove="tests\**\*.cs" />
+    <None Remove="tests\**\*" />
+  </ItemGroup>
 </Project>

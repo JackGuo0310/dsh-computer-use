@@ -32,11 +32,16 @@ real control.
 
 ```sh
 npm install
-npm test                  # scoped, desktop-free
+npm test                  # scoped, desktop-free Node tests
+npm run test:helper       # protocol tests, in-process, no window or process
+npm run test:all          # both suites
 npm run build:helper      # dotnet publish into native/publish/
 npm run verify:package    # packs, installs into a scratch tree, loads via the real Loader
 npm pack                  # prepack rebuilds the helper first
 ```
+
+Neither suite touches the desktop: the Node tests stub the helper, and the C# tests exercise
+request parsing and encoding without constructing a window, a process or an AutomationElement.
 
 `npm run verify:package` is the install-path proof: it packs the tarball, installs it into a
 temporary directory, resolves it by package name, checks the helper runtime and bundle patch
