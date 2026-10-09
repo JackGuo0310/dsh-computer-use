@@ -4,13 +4,14 @@
 
 ## 当前决策与实现状态
 
-**2026-10-09 用户已批准全面切换 Cua Driver，并停止旧方案。** 桌面操作使用独立进程中的 Cua；本插件保留应用白名单、观察绑定、执行点审批、取消与结果验证。最终删除自研 .NET UIA/Win32 helper，不保留双后端或自动回退。
+**2026-10-09 用户已批准全面切换 Cua Driver。** 运行时代码使用 `@trycua/cua-driver@0.28.0` SDK-managed private worker。因该版本背景语义点击的行为尚未验证，当前只开放 allowlist 窗口列举和单窗口观察；不暴露任何输入动作。无截图传输/渲染的验收结论，不宣称完整 Cua 功能已通过。旧 .NET UIA/Win32 helper 产品代码已移除，不保留双后端或自动回退。
 
 - 完整迁移方案：[DESIGN.md](<DESIGN.md>)。
 - 新会话可直接使用的实施提示词：[HANDOFF.md](<HANDOFF.md>)。
-- **当前运行代码仍是旧 .NET 实现，本轮只修改文档。Cua 后端尚未实施或验收。**
-
-之前的 Notepad 只读验收及 helper mock 测试均属于旧后端，不是 Cua 的验证结果。旧动作入口也没有经过真实控件验收。不要继续旧方案的实时验收，不要把上游支持能力写成本插件已通过的能力。
+- 阶段 A 的版本/API 静态证据见 [STAGE-A.md](<STAGE-A.md>)。Cua SDK 尚未安装或运行；真实桌面、截图和输入均未触及。
+- 当前安全边界是**观察-only**：只注册 `safe_win_list_windows` 与 `safe_win_observe`，且不向模型暴露 Cua element token。动作、审批后执行与结果验证尚未接入；不把上游能力写成本插件已通过的能力。
+- DSH 输出目前走 JSON/text 适配，不代表图像附件已被模型渲染或测试。截图选项目前拒绝 true；请勿依赖截图输出。
+- 旧 Notepad 只读验收及 helper mock 测试属于旧后端，不是 Cua 验收结果。保留的未跟踪 `scripts/verify-live-inspect.mjs` 仍引用 helper，因用户要求不修改、不提交且不可运行。
 
 ## 不能放宽的约束
 
@@ -25,6 +26,6 @@
 
 默认测试限定为本仓库 `test/*.test.js`；**禁止不带范围的 `node --test`**，因为忽略的第三方参考仓库含真实桌面自动化测试。
 
-当前安装、prepack、helper 测试和打包逻辑仍服务旧后端；新会话须依照迁移方案一并替换，不能原样运行并称为 Cua 的打包验证。方案文档没有启动 runtime、安装 Cua、改 DSH 配置或执行桌面测试。
+开发命令：`npm test` 仅运行仓库内 `test/*.test.js`；`npm run pack:check` 做 tarball dry-run；`npm run verify:package` 检查打包内容与依赖。以上均为桌面无关检查。不要运行不带范围的 `node --test`。
 
 实施按小阶段做本地 Git commit，不 push。保留既有用户改动，不通过重置工作树掩盖迁移。

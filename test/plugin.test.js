@@ -3,284 +3,173 @@ import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
 import { startSafeWinProvider } from '../src/plugin.js'
 
-const ALLOWED = ['notepad.exe']
+const allowedApps = new Set(['notepad.exe'])
+const target = {
+  windowId: 4242n, pid: 1234, app: 'notepad.exe', title: 'Untitled - Notepad',
+  bounds: { x: 0, y: 0, width: 900, height: 700 }, isOnScreen: true, minimized: false,
+}
 
-/** A helper stub that answers the four protocol operations deterministically. */
-class StubHelper {
-  window = { hwnd: 4242, pid: 1234, app: 'notepad.exe', title: 'Untitled - Notepad' }
-  calls = []
+class StubRuntime {
   closed = false
-  constructor(behavior = {}) {
-    this.behavior = behavior
-  }
-
-  async call(method, parameters, signal) {
+  calls = []
+  constructor({ observeWait, fail = false } = {}) { this.observeWait = observeWait; this.fail = fail }
+  async listTargets(apps, signal) {
     signal?.throwIfAborted()
-    this.calls.push({ method, parameters })
-    if (this.behavior.fail && this.behavior.fail === method) throw new Error('helper failure')
-    if (method === 'inspect') return { ...this.window, ...(this.behavior.window ?? {}) }
-    if (method === 'observe') return {
-      window: this.window,
-      observationId: 'a'.repeat(32),
-      elements: [{ type: 'Button', name: 'Save', automationId: 'save', password: false, patterns: ['Invoke'] }],
-    }
-    if (method === 'invoke') return { invoked: parameters }
-    throw new Error(`unexpected method ${method}`)
+    this.calls.push('list')
+    if (this.fail) throw new Error('Cua runtime failure')
+    assert.ok(apps.has('notepad.exe'))
+    return [target]
   }
-
+  async observe(window, { signal } = {}) {
+    signal?.throwIfAborted()
+    this.calls.push('observe')
+    if (this.observeWait) await this.observeWait
+    return {
+      target: window, snapshotId: 'stub-snapshot-0001',
+      treeMarkdown: 'Button: Next', elements: [{ index: 0, role: 'button', label: 'Next', value: '', enabled: true, selected: false, token: 'opaque-token', actions: ['click'] }],
+      truncated: false, images: [],
+    }
+  }
   async close() { this.closed = true }
 }
 
-/** Build a root context exposing the four services this provider consumes. */
-function harness({ approval, tools = {}, computerUse = {} } = {}) {
+function harness() {
   const ctx = new Context()
-  const state = { registrations: [], definitions: [], prompts: [], providers: [], released: 0 }
-  // The real registry returns an async disposer synchronously, so this stub must too.
-  ctx.provide('computerUse', {
-    register(name) {
-      if (state.providers.length) throw new Error('computer use slot already taken')
-      state.providers.push(name)
-      return async () => { state.providers.pop(); state.released++ }
-    },
-    ...computerUse,
-  })
-  state.ctx = ctx
-  ctx.provide('tools', {
-    // The real ToolRuntime returns the exact disposer, so this stub must too.
-    register(definition) {
-      state.registrations.push(definition.name)
-      state.definitions.push(definition)
-      return () => {
-        state.registrations = state.registrations.filter(entry => entry !== definition.name)
-        state.definitions = state.definitions.filter(entry => entry !== definition)
-      }
-    },
-    ...tools,
-  })
-  ctx.provide('systemPrompt', {
-    section(descriptor) { state.prompts.push(descriptor) },
-    getSectionOrder(key) { return key === 'TOOL_COMPUTER_USE' ? 5 : 0 },
-  })
-  if (approval !== null) ctx.provide('approval', approval ?? { request: async () => 'allowed-once' })
+  const state = { provider: null, tools: new Map(), sections: [], released: 0 }
+  ctx.provide('computerUse', { register(name) {
+    if (state.provider) throw new Error('computer use slot already taken')
+    state.provider = name
+    return async () => { state.provider = null; state.released++ }
+  } })
+  ctx.provide('tools', { register(definition) {
+    if (state.tools.has(definition.name)) throw new Error('duplicate tool')
+    state.tools.set(definition.name, definition)
+    return () => state.tools.delete(definition.name)
+  } })
+  ctx.provide('systemPrompt', { section(value) { state.sections.push(value); return () => {} }, getSectionOrder: () => 5 })
   return { ctx, state }
 }
 
-/** Minimal tool execution context accepted by the registered definitions. */
-function execContext(signal = new AbortController().signal) {
-  return { callId: 'call-1', name: 'safe_win_act', agent: { id: 'agent-1' }, signal }
+function exec(name, signal = new AbortController().signal) {
+  return { name, callId: `call-${name}`, rootCallId: 'turn-1', agent: { id: 'agent-1' }, signal }
+}
+function tool(state, name) {
+  const value = state.tools.get(name)
+  assert.ok(value, `${name} should be registered`)
+  return value
+}
+async function start(h, factory = async () => new StubRuntime()) {
+  let runtime
+  await startSafeWinProvider(h.ctx, { allowedApps, startRuntime: async signal => {
+    runtime = await factory(signal)
+    return runtime
+  } })
+  return { dispose: () => h.ctx.fiber.dispose(), runtime: () => runtime }
 }
 
-function toolOf(state, name) {
-  const definition = state.definitions.find(entry => entry.name === name)
-  if (!definition) throw new Error(`tool ${name} was not registered`)
-  return { execute: (args, exec) => definition.execute(args, exec) }
-}
-
-async function load(harness, helperOptions) {
-  const helper = new StubHelper(helperOptions)
-  const runtime = await startSafeWinProvider(harness.ctx, {
-    allowedApps: new Set(ALLOWED),
-    startHelper: async () => helper,
-  })
-  return { helper, runtime }
-}
-
-test('startup registers one provider slot, three tools and one prompt section', async () => {
+test('startup registers only inspection tools and no desktop enumeration', async () => {
   const h = harness()
-  const { runtime, helper } = await load(h)
-  assert.deepEqual(h.state.providers, ['safe-win'])
-  assert.deepEqual(h.state.registrations, ['safe_win_inspect', 'safe_win_observe', 'safe_win_act'])
-  assert.equal(h.state.prompts.length, 1)
-  assert.equal(helper.calls.length, 0, 'no desktop call happens during startup')
-  await runtime.dispose()
-  assert.deepEqual(h.state.providers, [])
-  assert.deepEqual(h.state.registrations, [])
-  assert.equal(helper.closed, true)
+  const provider = await start(h)
+  assert.equal(h.state.provider, 'safe-win')
+  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe'])
+  assert.equal(h.state.sections.length, 1)
+  assert.deepEqual(provider.runtime().calls, [], 'runtime startup must not enumerate desktop state')
+  await provider.dispose()
+  assert.equal(provider.runtime().closed, true)
+  assert.equal(h.state.provider, null)
+  assert.equal(h.state.tools.size, 0)
 })
 
-test('unload releases the slot only after the helper closes', async () => {
+test('window discovery emits opaque bigint IDs as exact decimal strings', async () => {
   const h = harness()
-  const { runtime, helper } = await load(h)
-  let helperClosedAtRelease = null
-  await runtime.dispose()
-  helperClosedAtRelease = h.state.released
-  assert.equal(h.state.released, 1)
-  assert.equal(helperClosedAtRelease, 1)
+  const provider = await start(h)
+  const result = await tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows'))
+  assert.equal(result.windows[0].windowId, '4242')
+  assert.equal(provider.runtime().calls.join(','), 'list')
+  await provider.dispose()
 })
 
-test('helper startup failure rolls back registrations and rejects the load', async () => {
+test('observe rechecks listing and removes Cua control tokens', async () => {
   const h = harness()
-  await assert.rejects(startSafeWinProvider(h.ctx, {
-    allowedApps: new Set(ALLOWED),
-    startHelper: async () => { throw new Error('helper missing') },
-  }), /helper missing/)
-  assert.deepEqual(h.state.providers, [], 'the exclusive slot is released after rollback')
-  assert.deepEqual(h.state.registrations, [])
+  const provider = await start(h)
+  const result = await tool(h.state, 'safe_win_observe').execute({ windowId: '4242', pid: 1234, screenshot: false }, exec('safe_win_observe'))
+  assert.equal(result.window.windowId, '4242')
+  assert.equal(result.elements[0].label, 'Next')
+  assert.equal('token' in result.elements[0], false)
+  assert.equal('observationId' in result, false)
+  assert.equal(result.treeMarkdown, 'Button: Next')
+  assert.deepEqual(result.screenshot, [])
+  assert.deepEqual(provider.runtime().calls, ['list', 'observe'])
+  await provider.dispose()
 })
 
-test('a taken provider slot is refused before any helper starts', async () => {
+test('screenshot requests fail closed until DSH image delivery is verified', async () => {
   const h = harness()
-  h.state.providers.push('someone-else')
-  let started = 0
-  await assert.rejects(startSafeWinProvider(h.ctx, {
-    allowedApps: new Set(ALLOWED),
-    startHelper: async () => { started++; return new StubHelper() },
-  }), /already taken/)
-  assert.equal(started, 0)
-  assert.deepEqual(h.state.registrations, [])
+  const provider = await start(h)
+  await assert.rejects(tool(h.state, 'safe_win_observe').execute({ windowId: '4242', pid: 1234, screenshot: true }, exec('safe_win_observe')), /delivery is not verified/)
+  assert.deepEqual(provider.runtime().calls, [])
+  await provider.dispose()
 })
 
-test('disposal during startup aborts the handshake and leaks no helper', async () => {
+test('a window absent from a fresh listing is not observed', async () => {
   const h = harness()
-  let helper
-  const runtime = startSafeWinProvider(h.ctx, {
-    allowedApps: new Set(ALLOWED),
-    startHelper: async signal => {
-      helper = new StubHelper()
-      await new Promise((resolve, reject) => {
-        signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
-      })
-      return helper
-    },
-  })
+  const provider = await start(h, async () => Object.assign(new StubRuntime(), { listTargets: async () => [] }))
+  await assert.rejects(tool(h.state, 'safe_win_observe').execute({ windowId: '4242', pid: 1234, screenshot: false }, exec('safe_win_observe')), /no longer an eligible/)
+  assert.deepEqual(provider.runtime().calls, [])
+  await provider.dispose()
+})
+
+test('no act tool exists while background semantic click behavior is unverified', async () => {
+  const h = harness()
+  const provider = await start(h)
+  assert.equal(h.state.tools.has('safe_win_act'), false)
+  assert.equal(h.state.tools.size, 2)
+  await provider.dispose()
+})
+
+test('runtime startup failure rolls back the provider and tools', async () => {
+  const h = harness()
+  await assert.rejects(startSafeWinProvider(h.ctx, { allowedApps, startRuntime: async () => { throw new Error('worker startup failed') } }), /worker startup failed/)
+  assert.equal(h.state.provider, null)
+  assert.equal(h.state.tools.size, 0)
+})
+
+test('a taken provider slot is refused before Cua runtime starts', async () => {
+  const h = harness()
+  h.state.provider = 'another-provider'
+  let starts = 0
+  await assert.rejects(startSafeWinProvider(h.ctx, { allowedApps, startRuntime: async () => { starts++; return new StubRuntime() } }), /already taken/)
+  assert.equal(starts, 0)
+})
+
+test('disposal during startup aborts and does not leak the runtime', async () => {
+  const h = harness()
+  let started
+  const starting = new Promise(resolve => { started = resolve })
+  let release
+  const wait = new Promise(resolve => { release = resolve })
+  const pending = startSafeWinProvider(h.ctx, { allowedApps, startRuntime: async signal => {
+    started()
+    await new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new Error('startup aborted')), { once: true })
+      wait.then(resolve)
+    })
+    return new StubRuntime()
+  } })
+  await starting
   await h.ctx.fiber.dispose()
-  await assert.rejects(runtime, /aborted|unloading|plugin unloaded/)
-  assert.deepEqual(h.state.providers, [])
-  assert.deepEqual(h.state.registrations, [])
-})
-
-test('approval refusal never reaches the helper and cannot be retried', async () => {
-  const asked = []
-  const h = harness({ approval: { request: async request => { asked.push(request); return 'rejected' } } })
-  const { runtime, helper } = await load(h)
-  const act = toolOf(h.state, 'safe_win_act')
-  const observation = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
-  await assert.rejects(act.execute({ observationId: observation.observationId, index: 0, action: 'Invoke' }, execContext()), /not approved/)
-  assert.deepEqual(asked.map(request => request.toolName), ['safe_win_act'])
-  assert.match(asked[0].reason, /notepad\.exe/)
-  assert.equal(helper.calls.some(entry => entry.method === 'invoke'), false)
-  await runtime.dispose()
-})
-
-test('a missing approver fails closed without asking anyone', async () => {
-  const h = harness({ approval: null })
-  const { runtime } = await load(h)
-  const act = toolOf(h.state, 'safe_win_act')
-  const observation = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
-  await assert.rejects(act.execute({ observationId: observation.observationId, index: 0, action: 'Invoke' }, execContext()), /unavailable/)
-  await runtime.dispose()
-})
-
-test('an approved action revalidates the window, then delivers exactly one invoke', async () => {
-  const h = harness()
-  const { runtime, helper } = await load(h)
-  const act = toolOf(h.state, 'safe_win_act')
-  const observation = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
-  const result = await act.execute({ observationId: observation.observationId, index: 0, action: 'Invoke' }, execContext())
-  assert.deepEqual(result, { invoked: { observationId: 'a'.repeat(32), index: 0, action: 'Invoke' } })
-  assert.deepEqual(helper.calls.map(entry => entry.method), ['inspect', 'observe', 'inspect', 'invoke'])
-  await runtime.dispose()
-})
-
-test('a window that changed after approval fails closed before delivery', async () => {
-  const h = harness()
-  const { runtime, helper } = await load(h, { window: { title: 'Untitled - Notepad (Copy)' } })
-  const act = toolOf(h.state, 'safe_win_act')
-  const observation = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
-  await assert.rejects(act.execute({ observationId: observation.observationId, index: 0, action: 'Invoke' }, execContext()), /window changed/)
-  assert.equal(helper.calls.some(entry => entry.method === 'invoke'), false)
-  await runtime.dispose()
-})
-
-test('cancelling a pending action prevents any later delivery', async () => {
-  const controller = new AbortController()
-  let sawApproval = false
-  const h = harness({ approval: { request: async () => { sawApproval = true; controller.abort(new Error('cancelled')); return 'allowed-once' } } })
-  const { runtime, helper } = await load(h)
-  const act = toolOf(h.state, 'safe_win_act')
-  const observation = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
-  await assert.rejects(act.execute({ observationId: observation.observationId, index: 0, action: 'Invoke' }, execContext(controller.signal)), /cancelled/)
-  assert.equal(sawApproval, true)
-  assert.equal(helper.calls.some(entry => entry.method === 'invoke'), false)
-  await runtime.dispose()
-})
-
-test('an observation from another window cannot act on this one', async () => {
-  const h = harness()
-  const { runtime } = await load(h)
-  const act = toolOf(h.state, 'safe_win_act')
-  const observation = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
-  await assert.rejects(act.execute({ observationId: 'not-the-issued-id', index: 0, action: 'Invoke' }, execContext()), /stale observation/)
-  await runtime.dispose()
-})
-
-test('a helper crash surfaces to the caller instead of hanging', async () => {
-  const h = harness()
-  const { runtime, helper } = await load(h, { fail: 'inspect' })
-  await assert.rejects(toolOf(h.state, 'safe_win_inspect').execute({ hwnd: 4242 }, execContext()), /helper failure/)
-  await runtime.dispose()
-})
-
-test('unload aborts an in-flight call and drains before releasing the slot', async () => {
-  const h = harness()
-  let release
-  const gate = new Promise(resolve => { release = resolve })
-  const helper = {
-    closed: false,
-    async call(method) { if (method === 'observe') await gate; return { window: { hwnd: 1, pid: 2, app: 'notepad.exe', title: 'x' }, observationId: 'a'.repeat(32), elements: [] } },
-    async close() { this.closed = true },
-  }
-  const runtime = await startSafeWinProvider(h.ctx, { allowedApps: new Set(ALLOWED), startHelper: async () => helper })
-  const inflight = toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
-  const disposing = runtime.dispose()
   release()
-  await assert.rejects(inflight)
-  await disposing
-  assert.equal(helper.closed, true, 'the helper closes only after the call settles')
-  assert.deepEqual(h.state.providers, [])
+  await assert.rejects(pending, /aborted|unloading/)
+  assert.equal(h.state.provider, null)
+  assert.equal(h.state.tools.size, 0)
 })
 
-test('a helper crash while approval is pending never delivers the action', async () => {
-  let release
-  const pending = new Promise(resolve => { release = resolve })
-  let approved = false
-  const helper = {
-    closed: false,
-    invoked: false,
-    async call(method) {
-      if (method === 'observe') return { window: { hwnd: 4242, pid: 1234, app: 'notepad.exe', title: 'Untitled - Notepad' }, observationId: 'a'.repeat(32), elements: [{ type: 'Button', name: 'Apply', automationId: 'apply', password: false, patterns: ['Invoke'] }] }
-      if (method === 'invoke') { this.invoked = true; return { delivered: true } }
-      // The helper dies once the user has decided, before the action is delivered.
-      if (approved) throw new Error('helper exited')
-      return { hwnd: 4242, pid: 1234, app: 'notepad.exe', title: 'Untitled - Notepad' }
-    },
-    async close() { this.closed = true },
-  }
-  const h = harness({ approval: { request: async () => { await pending; approved = true; return 'allowed-once' } } })
-  const runtime = await startSafeWinProvider(h.ctx, { allowedApps: new Set(ALLOWED), startHelper: async () => helper })
-  const observed = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
-  const acting = toolOf(h.state, 'safe_win_act').execute({ observationId: observed.observationId, index: 0, action: 'Invoke' }, execContext())
-  release()
-  await assert.rejects(acting, /helper exited/)
-  assert.equal(helper.invoked, false, 'a crashed helper must not receive an invoke')
-  await runtime.dispose()
-})
-
-test('a helper crash never resurrects the consumed observation', async () => {
+test('unload aborts queued work and closes runtime before releasing provider', async () => {
   const h = harness()
-  const { runtime, helper } = await load(h, { fail: 'invoke' })
-  const observed = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
-  const id = observed.observationId
-  await assert.rejects(toolOf(h.state, 'safe_win_act').execute({ observationId: id, index: 0, action: 'Invoke' }, execContext()))
-  await assert.rejects(toolOf(h.state, 'safe_win_act').execute({ observationId: id, index: 0, action: 'Invoke' }, execContext()), /stale/)
-  await runtime.dispose()
-})
-
-test('an invalid allowlist never reaches the helper', async () => {
-  const h = harness()
-  await assert.rejects(startSafeWinProvider(h.ctx, {
-    allowedApps: new Set(['powershell.exe']),
-    startHelper: async () => new StubHelper(),
-  }), /forbidden application/)
-  assert.deepEqual(h.state.providers, [])
+  const provider = await start(h)
+  const list = tool(h.state, 'safe_win_list_windows')
+  await provider.dispose()
+  await assert.rejects(list.execute({}, exec('safe_win_list_windows')), /disposed|unloading|aborted/)
+  assert.equal(provider.runtime().closed, true)
+  assert.equal(h.state.provider, null)
 })

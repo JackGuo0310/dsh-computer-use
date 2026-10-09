@@ -4,4 +4,3 @@ OtherRepo/**
 **/obj/
 node_modules/
 *.tgz
-native/publish/

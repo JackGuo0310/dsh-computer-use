@@ -11,11 +11,6 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as Plugin from '../src/plugin.js'
 
-/**
- * Loads the plugin through the real Loader with a literal allowlist value and
- * reports whether the declared Config validator rejected it. A validator the
- * Loader never calls is indistinguishable from no validation at all.
- */
 async function loadWith(configLines) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-cu-config-'))
   const configPath = join(root, 'cordis.yml')
@@ -24,12 +19,10 @@ async function loadWith(configLines) {
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['dsh-computer-use-safe-win', {
       ...Plugin,
-      apply: async ctx => {
-        await Plugin.startSafeWinProvider(ctx, {
-          allowedApps: new Set(['notepad.exe']),
-          startHelper: async () => ({ call: async () => { throw new Error('no helper') }, close: async () => {} }),
-        })
-      },
+      apply: async ctx => { await Plugin.startSafeWinProvider(ctx, {
+        allowedApps: new Set(['notepad.exe']),
+        startRuntime: async () => ({ listTargets: async () => [], observe: async () => ({}), close: async () => {} }),
+      }) },
     }],
   ])
   await writeFile(configPath, [
@@ -72,12 +65,14 @@ test('a string allowlist is refused by the declared Config validator', async () 
   }
 })
 
-test('a well-formed allowlist loads', async () => {
+test('a well-formed allowlist loads the two inspection-only tools', async () => {
   const result = await loadWith(['  config:', '    allowedApps: ["notepad.exe"]'])
   try {
     assert.equal(result.loaded, true, String(result.error))
     const names = result.ctx.tools.schemas().map(schema => schema.name)
-    assert.ok(names.includes('safe_win_act'))
+    assert.ok(names.includes('safe_win_list_windows'))
+    assert.ok(names.includes('safe_win_observe'))
+    assert.equal(names.includes('safe_win_act'), false)
   } finally {
     await result.ctx.fiber.dispose()
     await rm(result.root, { recursive: true, force: true })
