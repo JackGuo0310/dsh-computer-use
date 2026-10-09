@@ -10,7 +10,8 @@
     "DESIGN.md"
   ],
   "exports": {
-    ".": "./src/plugin.js"
+    ".": "./src/plugin.js",
+    "./package.json": "./package.json"
   },
   "dsh": {
     "bundle": {

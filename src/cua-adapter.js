@@ -1,5 +1,5 @@
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+import { getDriverPaths, getDriverStatus } from './driver-install.js'
 import {
   CuaDriver,
   EmbeddedEnvironmentVariable,
@@ -8,8 +8,6 @@ import {
   SessionPermissionMode,
 } from '@trycua/cua-driver'
 
-const PACKAGE_DIR = dirname(dirname(fileURLToPath(import.meta.resolve('@trycua/cua-driver/package.json'))))
-const WINDOWS_BINARY = join(PACKAGE_DIR, 'bin', 'cua-driver.exe')
 const HOST_BUNDLE_ID = 'ai.deepseek.dsh.computer-use'
 const MAX_ELEMENTS = 200
 const MAX_TEXT = 4096
@@ -49,9 +47,10 @@ function assertDriver(driver) {
 /**
  * Creates the single SDK-managed private-worker runtime; no desktop discovery occurs during startup.
  */
-export async function startCuaRuntime({ driverFactory = CuaDriver.createPrivateWorker, binaryPath = WINDOWS_BINARY, signal } = {}) {
+export async function startCuaRuntime({ driverFactory = CuaDriver.createPrivateWorker, binaryPath, signal } = {}) {
   if (process.platform !== 'win32') throw new Error('Cua computer use currently requires Windows')
-  const executable = resolve(binaryPath)
+  if (binaryPath === undefined && !(await getDriverStatus()).installed) throw new Error(`Cua Driver ${getDriverPaths().asset} is not installed as a complete managed release`)
+  const executable = resolve(binaryPath ?? getDriverPaths().executable)
   signal?.throwIfAborted()
 
   const authorization = RuntimeAuthorizationOptions.create({

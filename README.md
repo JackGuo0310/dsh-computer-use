@@ -8,9 +8,10 @@
 
 - 完整迁移方案：[DESIGN.md](<DESIGN.md>)。
 - 新会话可直接使用的实施提示词：[HANDOFF.md](<HANDOFF.md>)。
-- 阶段 A 的版本/API 静态证据见 [STAGE-A.md](<STAGE-A.md>)。Cua SDK 尚未安装或运行；真实桌面、截图和输入均未触及。
+- 阶段 A 的版本/API 静态证据见 [STAGE-A.md](<STAGE-A.md>)。Cua SDK 已作为开发依赖安装以供静态测试；Driver 可执行文件未安装、worker 未运行，真实桌面、截图和输入均未触及。
 - 当前安全边界是**观察-only**：只注册 `safe_win_list_windows` 与 `safe_win_observe`，且不向模型暴露 Cua element token。动作、审批后执行与结果验证尚未接入；不把上游能力写成本插件已通过的能力。
 - DSH 输出目前走 JSON/text 适配，不代表图像附件已被模型渲染或测试。截图选项目前拒绝 true；请勿依赖截图输出。
+- SDK 的 npm 包不含 `cua-driver.exe`；私有 worker 需要另行安装固定版本的 Windows release。仓库提供 `getDriverStatus` / `installDriver` 内部实现，但尚未发布可运行的 Web 客户端包和 Typert Remote 产物，因此 **Plugins 设置页的 `computer-use` / `电脑操控` 标签与安装按钮尚未完成**；勿将纯源码声明当作已加载的 UI。当前未下载或安装驱动。
 - 旧 Notepad 只读验收及 helper mock 测试属于旧后端，不是 Cua 验收结果。保留的未跟踪 `scripts/verify-live-inspect.mjs` 仍引用 helper，因用户要求不修改、不提交且不可运行。
 
 ## 不能放宽的约束
