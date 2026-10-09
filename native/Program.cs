@@ -63,6 +63,16 @@ internal static class Program
         }
     }
 
+    /// Drops observations that have outlived their window, bounding how many the
+    /// helper can hold when callers observe repeatedly without acting.
+    private static void ExpireSnapshots()
+    {
+        if (Snapshots.Count == 0) return;
+        var now = DateTime.UtcNow;
+        foreach (var id in Snapshots.Where(entry => now - entry.Value.Created > ObservationLifetime).Select(entry => entry.Key).ToList())
+            Snapshots.Remove(id);
+    }
+
     private static void Diagnostics(string message)
     {
         if (Environment.GetEnvironmentVariable("COMPUTER_USE_HELPER_DIAG") is { } flag and not ("" or "0"))
@@ -83,7 +93,9 @@ internal static class Program
 
     private static object Observe(JsonElement input)
     {
-        Snapshots.Clear();
+        // Drop only expired observations: clearing everything would cancel another
+        // agent's pending action the moment this one observes.
+        ExpireSnapshots();
         var hwnd = ReadHwnd(input);
         var identity = GetWindow(hwnd);
         var root = AutomationElement.FromHandle(hwnd);
@@ -100,7 +112,9 @@ internal static class Program
             targets.Add(new ObservedElement(element, fingerprint));
             elements.Add(new
             {
-                fingerprint.Type,
+                // Named explicitly: an inferred name would serialize with its C#
+                // casing, and the plugin reads these fields in lower camel case.
+                type = fingerprint.Type,
                 name = Bound(fingerprint.Name),
                 automationId = Bound(fingerprint.AutomationId),
                 password = false,
@@ -154,7 +168,11 @@ internal static class Program
     {
         var id = ReadString(input, "observationId");
         var snapshot = Snapshots.GetValueOrDefault(id);
-        Snapshots.Clear(); // A failed or ambiguous attempt still consumes the entire observation.
+        // Only the addressed observation is consumed. Another agent's pending
+        // observation must survive, or one agent observing would silently cancel
+        // another agent's approved action.
+        Snapshots.Remove(id); // A failed or ambiguous attempt still consumes that observation.
+        ExpireSnapshots();
         if (snapshot is null || DateTime.UtcNow - snapshot.Created > ObservationLifetime) throw new InvalidDataException("observation expired");
         var index = ReadInt(input, "index");
         var action = ReadString(input, "action");
