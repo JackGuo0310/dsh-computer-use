@@ -5,17 +5,22 @@
   "main": "./src/plugin.js",
   "files": [
     "src",
+    "client.js",
     "cordis.patch.yml",
     "README.md",
     "DESIGN.md"
   ],
   "exports": {
     ".": "./src/plugin.js",
+    "./client": "./client.js",
     "./package.json": "./package.json"
   },
   "dsh": {
     "bundle": {
       "patch": "cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
     }
   },
   "dependencies": {

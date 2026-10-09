@@ -19,6 +19,7 @@ async function loadWith(configLines) {
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['dsh-computer-use-safe-win', {
       ...Plugin,
+      inject: ['computerUse', 'tools', 'systemPrompt'],
       apply: async ctx => { await Plugin.startSafeWinProvider(ctx, {
         allowedApps: new Set(['notepad.exe']),
         startRuntime: async () => ({ listTargets: async () => [], observe: async () => ({}), close: async () => {} }),
@@ -55,7 +56,7 @@ async function loadWith(configLines) {
 }
 
 test('a string allowlist is refused by the declared Config validator', async () => {
-  const result = await loadWith(['  config:', '    allowedApps: notepad.exe'])
+  const result = await loadWith(['  config:', '    enabled: true', '    allowedApps: notepad.exe'])
   try {
     assert.equal(result.loaded, false, 'a non-array allowlist must not load')
     assert.match(String(result.error), /allowlist|allowedApps/i)
@@ -66,7 +67,7 @@ test('a string allowlist is refused by the declared Config validator', async () 
 })
 
 test('a well-formed allowlist loads the two inspection-only tools', async () => {
-  const result = await loadWith(['  config:', '    allowedApps: ["notepad.exe"]'])
+  const result = await loadWith(['  config:', '    enabled: true', '    allowedApps: ["notepad.exe"]'])
   try {
     assert.equal(result.loaded, true, String(result.error))
     const names = result.ctx.tools.schemas().map(schema => schema.name)

@@ -1,8 +1,10 @@
 import { configuredApps, validateWindow } from './policy.js'
+import { getDriverStatus } from './driver-install.js'
+import { registerDriverRoutes } from './driver-routes.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'computer-use-safe-win'
-export const inject = ['computerUse', 'tools', 'systemPrompt']
+export const inject = ['connection', 'webServer']
 export const Config = {
   '~standard': {
     version: 1,
@@ -10,8 +12,10 @@ export const Config = {
     validate(value) {
       try {
         if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('config object required')
-        configuredApps(value.allowedApps)
-        return { value: { allowedApps: value.allowedApps } }
+        if (typeof value.enabled !== 'boolean') throw new Error('enabled must be an explicit boolean')
+        if (!Array.isArray(value.allowedApps)) throw new Error('allowedApps must be an array')
+        if (value.enabled || value.allowedApps.length > 0) configuredApps(value.allowedApps)
+        return { value: { allowedApps: value.allowedApps, enabled: value.enabled } }
       } catch (error) { return { issues: [{ message: error.message }] } }
     },
   },
@@ -110,8 +114,11 @@ export async function startSafeWinProvider(ctx, { allowedApps, startRuntime }) {
 }
 
 export async function apply(ctx, config) {
+  registerDriverRoutes(ctx)
+  if (!config?.enabled) return
   if (process.platform !== 'win32') throw new Error('this computer-use provider requires Windows')
-  const allowedApps = configuredApps(config?.allowedApps)
+  const allowedApps = configuredApps(config.allowedApps)
+  if (!(await getDriverStatus()).installed) throw new Error('install the pinned Cua Driver from the plugin settings before enabling observation')
   const { startCuaRuntime } = await import('./cua-adapter.js')
   await startSafeWinProvider(ctx, {
     allowedApps,

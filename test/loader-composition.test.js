@@ -30,6 +30,7 @@ async function boot({ allowedApps = ['notepad.exe'], runtimeFactory } = {}) {
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['dsh-computer-use-safe-win', {
       ...Plugin,
+      inject: ['computerUse', 'tools', 'systemPrompt'],
       apply: async ctx => { await Plugin.startSafeWinProvider(ctx, {
         allowedApps: new Set(allowedApps),
         startRuntime: async signal => {
@@ -49,6 +50,7 @@ async function boot({ allowedApps = ['notepad.exe'], runtimeFactory } = {}) {
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: 'dsh-computer-use-safe-win'",
     '  config:',
+    '    enabled: true',
     `    allowedApps: ${JSON.stringify(allowedApps)}`,
     '',
   ].join('\n'))

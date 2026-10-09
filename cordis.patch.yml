@@ -1,8 +1,10 @@
-# Enables the opt-in Windows computer-use provider. The allowlist is mandatory and
-# has no default: an empty or forbidden entry fails the plugin load.
+# The management row stays available after install; desktop observation is opt-in.
 
 - insert:
     - id: computer-use-safe-win
       name: dsh-computer-use-safe-win
       config:
         allowedApps: []
+        enabled: false
+    - id: computer-use-safe-win-client
+      name: dsh-computer-use-safe-win/client

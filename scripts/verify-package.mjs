@@ -33,6 +33,8 @@ async function main() {
     const packageRoot = join(dirname(entry), '..')
     const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
     assert.deepEqual(manifest.dsh?.bundle, { patch: 'cordis.patch.yml' })
+    assert.deepEqual(manifest.dsh?.client, { platform: 'web' })
+    assert.equal(manifest.exports['./client'], './client.js')
     assert.equal(manifest.dependencies['@trycua/cua-driver'], '0.28.0')
     for (const file of ['src/helper-client.js', 'native/ComputerUse.Helper.dll', 'native/ComputerUse.Helper.exe', 'scripts/acceptance.mjs']) {
       assert.equal(existsSync(join(packageRoot, file)), false, `legacy file ${file} leaked into the tarball`)
@@ -43,7 +45,14 @@ async function main() {
 
     const patch = await readFile(join(packageRoot, 'cordis.patch.yml'), 'utf8')
     assert.match(patch, /name: dsh-computer-use-safe-win/)
+    assert.match(patch, /name: dsh-computer-use-safe-win\/client/)
     assert.match(patch, /allowedApps: \[\]/)
+    assert.match(patch, /enabled: false/)
+    const clientHalf = await readFile(join(packageRoot, 'client.js'), 'utf8')
+    assert.match(clientHalf, /__ModuleLoader__\.load\(\{/, 'the shipped client half must be a loadable browser module')
+    const requestedModules = [...clientHalf.matchAll(/require\('([^']+)'\)/g)].map(match => match[1])
+    assert.deepEqual(requestedModules, ['react'], 'the client half may request only seeded browser modules')
+    console.log('bundle patch keeps observation off and ships a loadable client half')
 
     const plugin = await import(pathToFileURL(entry).href)
     const configRoot = await mkdtemp(join(scratch, 'config-'))
@@ -53,6 +62,7 @@ async function main() {
       ['@deepseek-ai/dsh-tools', ToolRuntime],
       ['dsh-computer-use-safe-win', {
         ...plugin,
+        inject: ['computerUse', 'tools', 'systemPrompt'],
         apply: async ctx => { await plugin.startSafeWinProvider(ctx, {
           allowedApps: new Set(['notepad.exe']),
           startRuntime: async () => ({ listTargets: async () => [], observe: async () => ({}), close: async () => {} }),
@@ -64,6 +74,7 @@ async function main() {
       "- name: '@deepseek-ai/dsh-tools'",
       "- name: 'dsh-computer-use-safe-win'",
       '  config:',
+      '    enabled: true',
       '    allowedApps: [notepad.exe]',
     ].join('\n'))
     const ctx = new Context()

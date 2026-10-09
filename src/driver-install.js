@@ -4,7 +4,7 @@ import { createWriteStream } from 'node:fs'
 import { access, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { arch, homedir, platform, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
 export const DRIVER_VERSION = '0.28.0'
@@ -13,6 +13,8 @@ const WINDOWS_ARM64_SHA256 = 'd8059fa1e963169258e5086029c7d0627bb76bd91703f040af
 const RELEASE = `https://github.com/trycua/cua/releases/download/cua-driver-rs-v${DRIVER_VERSION}`
 const BINARIES = ['cua-driver.exe', 'cua-driver-uia.exe']
 const MARKER = 'release.sha256'
+const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
+const MAX_EXTRACTED_BYTES = 180 * 1024 * 1024
 
 /** Resolve the version-pinned, private release location without inspecting the desktop. */
 export function getDriverPaths({ os = platform(), cpu = arch(), home = homedir() } = {}) {
@@ -31,10 +33,11 @@ export function getDriverPaths({ os = platform(), cpu = arch(), home = homedir()
 
 async function isComplete(paths) {
   try {
-    if ((await readFile(join(paths.directory, MARKER), 'utf8')).trim() !== paths.checksum) return false
+    const marker = await lstat(join(paths.directory, MARKER))
+    if (!marker.isFile() || marker.isSymbolicLink() || (await readFile(join(paths.directory, MARKER), 'utf8')).trim() !== paths.checksum) return false
     for (const name of BINARIES) {
       const file = join(paths.directory, name)
-      const info = await stat(file)
+      const info = await lstat(file)
       if (!info.isFile() || info.size < 1024 * 1024) return false
       const handle = await open(file, 'r')
       try {
@@ -50,8 +53,8 @@ async function isComplete(paths) {
 export async function getDriverStatus(options = {}) {
   const paths = getDriverPaths(options)
   if (!paths.supported) return { installed: false, supported: false, reason: paths.reason, version: DRIVER_VERSION }
-  if (await isComplete(paths)) return { installed: true, supported: true, version: DRIVER_VERSION, path: paths.executable, managed: true }
-  return { installed: false, supported: true, version: DRIVER_VERSION, path: paths.executable }
+  if (await isComplete(paths)) return { installed: true, supported: true, version: DRIVER_VERSION, installedVersion: DRIVER_VERSION, path: paths.executable, managed: true, runtimeVerified: false }
+  return { installed: false, supported: true, version: DRIVER_VERSION, installedVersion: null, path: paths.executable }
 }
 
 function runPowerShell(script, args) {
@@ -67,12 +70,20 @@ export async function installDriver({ fetchImpl = fetch, options = {} } = {}) {
   const current = await getDriverStatus(options)
   if (current.installed) return current
 
-  const response = await fetchImpl(`${RELEASE}/${paths.asset}`, { redirect: 'follow' })
+  const timeout = AbortSignal.timeout(60_000)
+  const response = await fetchImpl(`${RELEASE}/${paths.asset}`, { redirect: 'follow', signal: timeout })
   if (!response.ok || !response.body) throw new Error(`Cua Driver download failed: HTTP ${response.status}`)
+  if (response.url && !/^https:\/\/github\.com\/trycua\/cua\/releases\/download\/|^https:\/\/release-assets\.githubusercontent\.com\//.test(response.url)) throw new Error('Unexpected Cua Driver download origin')
+  if (Number(response.headers?.get('content-length')) > MAX_ARCHIVE_BYTES) throw new Error('Cua Driver archive exceeds size limit')
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-cua-driver-'))
   try {
     const archivePath = join(scratch, paths.asset)
-    await pipeline(Readable.fromWeb(response.body), createWriteStream(archivePath, { flags: 'wx' }))
+    let downloaded = 0
+    const limit = new Transform({ transform(chunk, _encoding, callback) {
+      downloaded += chunk.length
+      callback(downloaded > MAX_ARCHIVE_BYTES ? new Error('Cua Driver archive exceeds size limit') : null, chunk)
+    } })
+    await pipeline(Readable.fromWeb(response.body), limit, createWriteStream(archivePath, { flags: 'wx' }), { signal: timeout })
     const archive = await readFile(archivePath)
     if (createHash('sha256').update(archive).digest('hex') !== paths.checksum) throw new Error('Cua Driver archive checksum does not match the pinned official release')
 
@@ -83,7 +94,12 @@ Add-Type -AssemblyName System.IO.Compression
 $zip = [System.IO.Compression.ZipFile]::OpenRead($Archive)
 try {
   $entries = @($zip.Entries | Where-Object { $_.Name -ne '' })
-  if ($entries.Count -gt 32) { throw 'Unexpected Cua Driver archive layout' }
+  if ($entries.Count -ne 2) { throw 'Unexpected Cua Driver archive layout' }
+  $total = [int64]0
+  foreach ($entry in $entries) {
+    $total += $entry.Length
+    if ($total -gt ${MAX_EXTRACTED_BYTES}) { throw 'Cua Driver extracted size exceeds limit' }
+  }
   $required = @('cua-driver.exe', 'cua-driver-uia.exe')
   foreach ($entry in $entries) {
     if ($entry.FullName -ne $entry.Name -or $entry.Name -notmatch '^[a-zA-Z0-9_.-]+$' -or (($entry.ExternalAttributes -shr 16) -band 0xF000) -eq 0xA000) { throw 'Unsafe Cua Driver archive entry' }
@@ -114,7 +130,7 @@ try {
       if (error.code !== 'ENOENT') throw error
     }
     await rename(extraction, paths.directory)
-    return { installed: true, supported: true, version: DRIVER_VERSION, path: paths.executable, managed: true }
+    return { installed: true, supported: true, version: DRIVER_VERSION, installedVersion: DRIVER_VERSION, path: paths.executable, managed: true, runtimeVerified: false }
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }

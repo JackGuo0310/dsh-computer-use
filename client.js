@@ -1,0 +1,54 @@
+window.__ModuleLoader__.load({
+  id: 'dsh-computer-use-safe-win',
+  factory(require) {
+    const React = require('react')
+    const h = React.createElement
+    const TEXT = {
+      zh: { title: 'Cua Driver · 只读', intro: '先安装受管驱动，再测试安装状态。安装不会开启桌面观察；观察功能须另行配置白名单并启用。', test: '测试驱动', install: '安装驱动', confirm: '从 trycua 官方发行版下载并安装固定版本驱动？', busy: '正在安装…', absent: '未安装', ready: '受管驱动已安装（未启动验证）', unsupported: '当前系统不支持', version: '受管版本', expected: '目标版本', error: '请求失败', remote: '仅本机浏览器允许安装；远程连接请在主机本机打开设置页。' },
+      en: { title: 'Cua Driver · Read-only', intro: 'Install the managed driver and test its status. Installation never enables desktop observation; configure an allowlist and enable observation separately.', test: 'Test driver', install: 'Install driver', confirm: 'Download and install the pinned driver from the official trycua release?', busy: 'Installing…', absent: 'Not installed', ready: 'Managed driver installed (runtime not tested)', unsupported: 'Unsupported system', version: 'Managed version', expected: 'Target version', error: 'Request failed', remote: 'Installation is restricted to the local browser; open settings on the Host.' },
+    }
+    function DriverSettings(props) {
+      const [status, setStatus] = React.useState(null)
+      const [busy, setBusy] = React.useState(false)
+      const [error, setError] = React.useState('')
+      const t = TEXT[(typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('zh')) ? 'zh' : 'en']
+      async function request(path, options) {
+        const response = await fetch(path, { credentials: 'same-origin', ...options })
+        const value = await response.json()
+        if (!response.ok) throw new Error(value.error || t.error)
+        return value
+      }
+      async function test() {
+        try { setError(''); setStatus(await request('/computer-use-safe-win/status')) }
+        catch (cause) { setError(String(cause.message || cause)) }
+      }
+      React.useEffect(() => { if (props.view === 'page') void test() }, [props.view])
+      async function install() {
+        if (!window.confirm(t.confirm)) return
+        setBusy(true)
+        setError('')
+        try {
+          await request('/computer-use-safe-win/install', { method: 'POST', headers: { 'content-type': 'application/json', 'x-computer-use-confirm': 'install-pinned-driver' }, body: '{}' })
+          await test()
+        } catch (cause) { setError(String(cause.message || cause)) }
+        finally { setBusy(false) }
+      }
+      if (props.view !== 'page') return null
+      return h('section', { style: { padding: '16px', border: '1px solid var(--dsw-border-default, #53657b)', borderRadius: '12px', maxWidth: '600px' } },
+        h('h4', { style: { margin: '0 0 8px' } }, t.title),
+        h('p', null, t.intro),
+        h('p', { role: 'status', 'aria-live': 'polite' }, status ? status.supported ? status.installed ? `${t.ready} · ${t.version}: ${status.installedVersion}` : `${t.absent} · ${t.expected}: ${status.version}` : t.unsupported : '…'),
+        h('p', null, t.remote),
+        h('div', { style: { display: 'flex', gap: '8px' } },
+          h('button', { type: 'button', disabled: busy, onClick: () => void test() }, t.test),
+          h('button', { type: 'button', disabled: busy || status?.supported === false || status?.installed === true, onClick: () => void install() }, busy ? t.busy : t.install)),
+        error ? h('p', { role: 'alert' }, error) : null)
+    }
+    return {
+      inject: ['slots'],
+      apply(ctx) {
+        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({ name: 'plugins.bundle.config', key: 'dsh-computer-use-safe-win' }, DriverSettings))
+      },
+    }
+  },
+})
