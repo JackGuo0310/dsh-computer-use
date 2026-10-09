@@ -51,6 +51,10 @@ internal static class Program
             {
                 Snapshots.Clear();
                 var message = error is InvalidDataException ? error.Message : "Windows automation operation failed";
+                // Opt-in local diagnostics write to stderr, never into the protocol
+                // response, so a caller cannot read internal exception detail.
+                if (Environment.GetEnvironmentVariable("COMPUTER_USE_HELPER_DIAG") is { } flag and not ("" or "0"))
+                    Console.Error.WriteLine($"{error.GetType().Name}: {error.Message}");
                 try { Write(Protocol.Encode(request.Id, null, message)); }
                 catch (InvalidDataException) { Write(Protocol.Encode(request.Id, null, "response exceeds protocol limits")); }
             }
@@ -217,15 +221,31 @@ internal static class Program
 
     private static string Bound(string value) => value.Length > 256 ? value[..256] : value;
 
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const long UnixTimeTicksAtEpoch = 621_355_968_000_000_000L;
+
     private static WindowIdentity GetWindow(nint hwnd)
     {
         if (!IsWindow(hwnd) || !IsWindowVisible(hwnd) || GetAncestor(hwnd, 2) != hwnd) throw new InvalidDataException("window unavailable");
         GetWindowThreadProcessId(hwnd, out var pid);
         if (pid == 0) throw new InvalidDataException("window process unavailable");
-        var process = Process.GetProcessById(checked((int)pid));
-        var executable = Path.GetFileName(process.MainModule?.FileName) ?? throw new InvalidDataException("executable unavailable");
-        // Process start time rejects a reused window handle whose pid was recycled.
-        var started = process.StartTime.ToUniversalTime();
+        // Query the process with limited information rights: packaged and elevated
+        // applications reject PROCESS_QUERY_INFORMATION, which .NET MainModule and
+        // StartTime both require. A relative image name would weaken the allowlist,
+        // so only a readable full path produces an acceptable identity.
+        var handle = OpenProcess(ProcessQueryLimitedInformation, false, pid);
+        string executable;
+        DateTime started;
+        try
+        {
+            var buffer = new char[32768];
+            var size = (nint)buffer.Length;
+            if (!QueryFullProcessImageName(handle, 0, buffer, ref size)) throw new InvalidDataException("process identity unavailable");
+            executable = Path.GetFileName(new string(buffer, 0, size.ToInt32()));
+            if (!GetProcessTimes(handle, out var created, out _, out _, out _)) throw new InvalidDataException("process identity unavailable");
+            started = DateTime.UnixEpoch.AddTicks(created - UnixTimeTicksAtEpoch);
+        }
+        finally { CloseHandle(handle); }
         var titleLength = GetWindowTextLength(hwnd);
         if (titleLength <= 0 || titleLength > 512) throw new InvalidDataException("window title unavailable");
         var title = new StringBuilder(titleLength + 1);
@@ -264,6 +284,10 @@ internal static class Program
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint hWnd);
     [DllImport("user32.dll")] private static extern nint GetAncestor(nint hWnd, uint gaFlags);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern nint OpenProcess(uint access, bool inheritHandle, uint processId);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool QueryFullProcessImageName(nint process, uint flags, char[] buffer, ref nint size);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetProcessTimes(nint process, out long creation, out long exit, out long kernel, out long user);
+    [DllImport("kernel32.dll")] private static extern bool CloseHandle(nint handle);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint hWnd, System.Text.StringBuilder text, int count);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowTextLength(nint hWnd);
 }
