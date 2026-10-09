@@ -120,7 +120,7 @@ export async function startSafeWinProvider(ctx, { allowedApps, startHelper }) {
                 agent: exec.agent,
                 toolName: exec.name,
                 callId: exec.callId,
-                reason: `Allow one ${pendingAction} of ${element.type} "${element.name}" (AutomationId "${element.automationId}") in the ${window.app} window "${window.title}" (PID ${window.pid})? It may have irreversible effects and cannot be undone.`,
+                reason: `Allow one ${pendingAction} of ${element.type} "${element.name}" (AutomationId "${element.automationId}", control ${element.position + 1} of the observed list) in the ${window.app} window "${window.title}" (PID ${window.pid})? It may have irreversible effects and cannot be undone.`,
                 signal,
               })
             },

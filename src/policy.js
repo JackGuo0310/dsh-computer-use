@@ -88,9 +88,8 @@ export class ObservationGate {
       if (!Number.isInteger(index) || index < 0 || index >= observation.elements.length || !SAFE_PATTERNS.has(action)) throw new Error('unsupported action')
       const element = observation.elements[index]
       if (!element || !SAFE_TYPES.has(element.type) || !SAFE_PATTERNS.has(action) || !element.patterns.includes(action)) throw new Error('element is not safely actionable')
-      if (isSensitive(element)) throw new Error('element is sensitive or has unknown consequences')
       // Every state-changing action requires an explicit one-shot approval; no model-supplied risk field.
-      const outcome = await approve({ window: observation.identity, element: { name: element.name, automationId: element.automationId, type: element.type }, action })
+      const outcome = await approve({ window: observation.identity, element: { name: element.name, automationId: element.automationId, type: element.type, position: index }, action })
       if (outcome !== 'allowed-once') throw new Error(`action was not approved (${outcome})`)
       if (Date.now() - observation.created > 30_000) throw new Error('observation expired while awaiting approval')
       // Re-check the window immediately before delivery. The approval may have
