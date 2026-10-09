@@ -240,6 +240,42 @@ test('unload aborts an in-flight call and drains before releasing the slot', asy
   assert.deepEqual(h.state.providers, [])
 })
 
+test('a helper crash while approval is pending never delivers the action', async () => {
+  let release
+  const pending = new Promise(resolve => { release = resolve })
+  let approved = false
+  const helper = {
+    closed: false,
+    invoked: false,
+    async call(method) {
+      if (method === 'observe') return { window: { hwnd: 4242, pid: 1234, app: 'notepad.exe', title: 'Untitled - Notepad' }, observationId: 'a'.repeat(32), elements: [{ type: 'Button', name: 'Apply', automationId: 'apply', password: false, patterns: ['Invoke'] }] }
+      if (method === 'invoke') { this.invoked = true; return { delivered: true } }
+      // The helper dies once the user has decided, before the action is delivered.
+      if (approved) throw new Error('helper exited')
+      return { hwnd: 4242, pid: 1234, app: 'notepad.exe', title: 'Untitled - Notepad' }
+    },
+    async close() { this.closed = true },
+  }
+  const h = harness({ approval: { request: async () => { await pending; approved = true; return 'allowed-once' } } })
+  const runtime = await startSafeWinProvider(h.ctx, { allowedApps: new Set(ALLOWED), startHelper: async () => helper })
+  const observed = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
+  const acting = toolOf(h.state, 'safe_win_act').execute({ observationId: observed.observationId, index: 0, action: 'Invoke' }, execContext())
+  release()
+  await assert.rejects(acting, /helper exited/)
+  assert.equal(helper.invoked, false, 'a crashed helper must not receive an invoke')
+  await runtime.dispose()
+})
+
+test('a helper crash never resurrects the consumed observation', async () => {
+  const h = harness()
+  const { runtime, helper } = await load(h, { fail: 'invoke' })
+  const observed = await toolOf(h.state, 'safe_win_observe').execute({ hwnd: 4242 }, execContext())
+  const id = observed.observationId
+  await assert.rejects(toolOf(h.state, 'safe_win_act').execute({ observationId: id, index: 0, action: 'Invoke' }, execContext()))
+  await assert.rejects(toolOf(h.state, 'safe_win_act').execute({ observationId: id, index: 0, action: 'Invoke' }, execContext()), /stale/)
+  await runtime.dispose()
+})
+
 test('an invalid allowlist never reaches the helper', async () => {
   const h = harness()
   await assert.rejects(startSafeWinProvider(h.ctx, {
