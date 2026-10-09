@@ -32,16 +32,27 @@
 仅运行本仓库限定测试：`npm test`（`node --test test/*.test.js`）。**禁止裸 `node --test`**，因为忽略的 `OtherRepo` 含真实桌面自动化测试。
 
 - `npm run pack:check`：tarball dry-run。
-- `npm run verify:package`：scratch install、检查 tarball 无 helper，并通过真实 Loader 验证 observation-only 工具注册与卸载。
+- `npm run verify:package`：scratch install、检查 tarball 无 helper、确认 patch/`./client`/locale/icon 资源完整，并通过真实 Loader 验证 observation-only 工具注册与卸载。
 
 这些检查不启动 Cua worker，也不接触桌面。测试不能替代未验证的运行能力。
+
+## 安装后引导与驱动管理
+
+插件安装后只需一个包名 `dsh-computer-use-safe-win`：同一个 Loader 行同时挂载 Host 半与浏览器半（`dsh.client.platform: web` 声明使其进入浏览器模块表）。**不再声明单独的 `/client` 行**——子路径行会解析到同一包并在模块表中与包名行冲突。
+
+Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必须在 `/api` 下）上提供两条 exact 路由，由 Connection 的 Host/Origin 栅栏和浏览器认证先行裁决：
+
+- `GET /api/computer-use-safe-win/status`：只读受管目录，区分目标版本与已安装版本，并标记 `runtimeVerified: false`。
+- `POST /api/computer-use-safe-win/install`：除认证外还要求回环请求地址、same-origin 标记与显式确认头；远程 Host 或跨源请求返回 403，同一时刻只允许一次安装。
+
+安装器固定 `0.28.0` 官方发行包的 SHA-256，校验响应来源、体积上限、ZIP 根条目与解压总量，并在临时目录完成后原子重命名；从不执行二进制。浏览器半注册 `plugins.bundle.config` 键 `dsh-computer-use-safe-win`，仅在配置页（`view === 'page'`）渲染，提供「测试驱动」与「安装驱动」。安装不启动 worker、不枚举桌面；观察须另行把 `config.enabled` 置为 true 并配置 `allowedApps`。
 
 ## 阶段
 
 - A（版本/API/拓扑静态证据）：完成，见 STAGE-A.md；未运行 Cua。
 - B（观察路径、身份校验、Loader 与生命周期）：已实现并有桌面无关测试；完整打包验证已通过。
 - C（输入动作、审批后重验、结果验证、截图附件）：未完成；动作关闭，图像管线未验证。
-- D（移除旧 helper 链路、测试/配置/文档/打包）：旧产品代码与测试已移除，最终审阅提交待完成。
-- E（最终审阅与本地提交）：进行中；不 push。
+- D（移除旧 helper 链路、测试/配置/文档/打包）：旧产品代码与测试已移除；打包校验覆盖 client/locale/icon 资源。
+- E（最终审阅与本地提交）：本地提交与 tag `mvp-0.1.0` 已建立；不 push。
 
 旧 .NET helper 测试及 live acceptance 不是 Cua 验收。用户留下的未跟踪 `scripts/verify-live-inspect.mjs` 仍引用旧 helper，按要求保持未修改、未提交且不可运行。本次未进行 live desktop run；未来 live run 需针对明确隔离 fixture/VM 另行审批。
