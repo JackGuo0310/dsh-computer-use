@@ -49,6 +49,32 @@ git+ssh://git@github.com/JackGuo0310/dsh-computer-use.git#<TAG>
 
 安装需要可用的 SSH key。安装后在 Plugins 设置页打开 `dsh-computer-use-safe-win` 的配置页，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
 
+### 0.1.0 升级到 0.1.1（重要）
+
+0.1.0 把宿主的 `@deepseek-ai/dsh-tools` 声明为普通 `dependencies`。安装它会让 DSH Profile 在
+`~/.dsh/profiles/<profile>/node_modules/` 下**再装一份 DSH 核心工具运行时**。宿主与副本各自
+`import` 出的 `TOOL_RUNTIME_SCHEDULER` 是两个不同的 Symbol，等于同一对象上出现两个键，
+`dsh-agent-loop` 随即抛出 `Cannot read properties of undefined (reading 'prepare')`。
+
+**卸载 0.1.0 不会自动清掉那份残留副本**（取决于当时的安装状态），因此升级后请确认一次：
+
+```sh
+# 先退出 DSH，再确认 Profile 下已没有独立的 dsh-tools
+ls ~/.dsh/profiles/web/node_modules/@deepseek-ai/dsh-tools
+```
+
+- **目录已消失**（pnpm 的正常情况）：无需处理，重启 DSH 即可。
+- **目录仍存在**：删掉这一份即可，让解析回落到全局 DSH 的那份，然后重启 DSH。
+
+```sh
+rm -rf ~/.dsh/profiles/web/node_modules/@deepseek-ai/dsh-tools
+```
+
+只删 `dsh-tools` 这一个目录。`cosmokit`、`schemastery` 等可能仍被 `dsh-remote`、
+`dsh-better-sidebar` 共用，删掉它们反而会破坏其他插件。
+
+0.1.1 自身不再引入任何宿主包，工具定义由 `src/tool-def.js` 自行构造，只依赖注入的 `ctx` 服务。
+
 ## 许可证
 
 [MIT](<LICENSE>) License，Copyright (c) 2026 Jack Guo。

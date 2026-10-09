@@ -25,7 +25,31 @@
 
 增加输入动作前，须验证选定 SDK 版本的后台目标语义、delivery 状态与失败/取消行为；通过 DSH 一次性审批，并在审批后重验进程、窗口、快照、目标 token 和 driver generation。拒绝、缺失、取消或目标变化必须拒绝；送达状态模糊时不可重放。当前未满足门槛，因此没有动作工具。
 
-输出截图前，须核实 `@deepseek-ai/dsh-tools` 的附件/图片管线并通过真实 Loader 输出测试。当前 JSON/text 适配器不能证明图片能被渲染；插件暂时拒绝截图请求，不宣称可用。
+输出截图前，须核实 DSH 工具运行时（`@deepseek-ai/dsh-tools`）的附件/图片管线并通过真实 Loader 输出测试。当前 JSON/text 适配器不能证明图片能被渲染；插件暂时拒绝截图请求，不宣称可用。
+
+## 宿主依赖边界（0.1.1 起强制）
+
+插件**不得**在运行时 import 任何 `@deepseek-ai/*` 宿主包，也**不得**把宿主包写进
+`dependencies` / `optionalDependencies`。违反会引入 DSH 核心模块的第二份物理副本：
+Profile 会多装一个 `@deepseek-ai/dsh-tools`，宿主与副本各自 `import` 的
+`TOOL_RUNTIME_SCHEDULER` 是两个不同的 Symbol，`dsh-agent-loop` 读取
+`ctx.tools[TOOL_RUNTIME_SCHEDULER]` 得到 `undefined`，抛出
+`Cannot read properties of undefined (reading 'prepare')`。
+
+两条约束缺一不可：
+
+1. `dependencies` 只放真正随插件分发的第三方库（当前仅 `@trycua/cua-driver`）。
+2. 工具定义由 `src/tool-def.js` 自行构造，编译出的 `parameters` / `output.schema`
+   已逐字节对齐 `defineTool()` 的投影，参数校验也自行保留——因此无需 import 宿主包。
+   注意 `output.schema` 必须写**原生 JSON Schema**：宿主 DSL 的 `type: 'json'` 会被
+   `defineTool` 编译成 `{}`，直接照抄 `'json'` 会被 `assertSupportedJsonSchema` 拒绝。
+
+注意 `autoInstallPeers: false` 只对 **peerDependencies** 生效，因此「改成
+peerDependencies 就没事」并不成立：宿主包一旦以任何可安装形态出现在 manifest 里，
+都可能让 Profile 物化出独立副本。本插件采用更强的「完全不声明 + 不 import」。
+
+`test/host-dependency-isolation.test.js` 以回归测试固化以上约束，新增宿主 import 或
+新增宿主依赖都会使测试失败。
 
 ## 测试与发布
 
