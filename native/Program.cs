@@ -14,6 +14,8 @@ internal static class Program
     private static readonly HashSet<string> AllowedActions = new(StringComparer.Ordinal) { "Invoke", "Select", "Toggle" };
     private const int MaxElements = 100;
     private const int MaxAncestryDepth = 256;
+    private const int MaxExaminedElements = 2000;
+    private const int MaxQueuedElements = 512;
     private static readonly TimeSpan ObservationLifetime = TimeSpan.FromSeconds(30);
 
     [STAThread]
@@ -137,11 +139,13 @@ internal static class Program
         return new { observationId, window = identity, elements };
     }
 
-    /// Enumerates descendants breadth-first so a wide provider costs a bounded depth.
+    /// Enumerates descendants breadth-first. Depth, breadth and total examined nodes
+    /// are all bounded, so one application cannot make a walk unbounded.
     private static IEnumerable<AutomationElement> Walk(AutomationElement root, int pid)
     {
         var walker = TreeWalker.ControlViewWalker;
         var queue = new Queue<(AutomationElement Element, int Depth)>();
+        var examined = 0;
         queue.Enqueue((root, 0));
         while (queue.Count > 0)
         {
@@ -151,12 +155,16 @@ internal static class Program
             catch (ElementNotAvailableException) { continue; }
             while (child is not null)
             {
+                // Bound the total work, not only the depth: an application can expose
+                // an arbitrarily wide tree, and every visited node costs a provider
+                // round trip that may block.
+                if (++examined > MaxExaminedElements) throw new InvalidDataException("window exposes an impractically large control tree");
                 bool alive;
                 try
                 {
                     // A control owned by another process is not part of the observed window.
                     alive = child.Current.ProcessId == pid;
-                    if (depth + 1 < MaxAncestryDepth) queue.Enqueue((child, depth + 1));
+                    if (depth + 1 < MaxAncestryDepth && queue.Count < MaxQueuedElements) queue.Enqueue((child, depth + 1));
                 }
                 catch (ElementNotAvailableException) { alive = false; }
                 if (alive) yield return child;
