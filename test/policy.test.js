@@ -64,6 +64,27 @@ test('a blank-named control is refused before it reaches the model', () => {
   ], helperId), /no safely actionable control/)
 })
 
+test('the window is rechecked after approval and before delivery', async () => {
+  const gate = new ObservationGate(['fixture.exe'])
+  const { observationId: id } = gate.record('agent-a', window, elements, helperId)
+  const events = []
+  // The window is unchanged at revalidation, so delivery proceeds.
+  assert.equal(await run(gate, id, {
+    currentWindow: async () => { events.push('revalidate'); return window },
+    deliver: async () => { events.push('deliver'); return 'ok' },
+  }), 'ok')
+  assert.deepEqual(events, ['revalidate', 'deliver'], 'delivery follows the revalidation, never precedes it')
+})
+
+test('a window replaced during approval fails closed before delivery', async () => {
+  const gate = new ObservationGate(['fixture.exe'])
+  const { observationId: id } = gate.record('agent-a', window, elements, helperId)
+  await assert.rejects(run(gate, id, {
+    currentWindow: async () => ({ ...window, pid: 44 }),
+    deliver: () => { throw Error('delivered') },
+  }), /window changed/)
+})
+
 test('two agents do not share observation state', async () => {
   const gate = new ObservationGate(['fixture.exe'])
   const a = gate.record('agent-a', window, elements, helperId)

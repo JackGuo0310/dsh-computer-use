@@ -91,8 +91,12 @@ export class ObservationGate {
       const outcome = await approve({ window: observation.identity, element: { name: element.name, automationId: element.automationId, type: element.type }, action })
       if (outcome !== 'allowed-once') throw new Error(`action was not approved (${outcome})`)
       if (Date.now() - observation.created > 30_000) throw new Error('observation expired while awaiting approval')
+      // Re-check the window immediately before delivery. The approval may have
+      // taken a while, and the window can be replaced while the user decides, so
+      // the identity verified at observation time is not evidence about now.
       const liveWindow = validateWindow(await currentWindow(observation.identity), this.#allowedApps)
       if (!sameWindow(observation.identity, liveWindow)) throw new Error('window changed after approval')
+      if (Date.now() - observation.created > 30_000) throw new Error('observation expired before delivery')
       // The model addressed a filtered view; deliver to the control it named.
       return await deliver({ window: liveWindow, helperId: observation.helperId, index: observation.mapping[index], action })
     } finally {
