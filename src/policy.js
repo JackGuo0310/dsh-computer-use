@@ -29,6 +29,10 @@ function sameWindow(a, b) {
   return a.hwnd === b.hwnd && a.pid === b.pid && a.app === b.app && a.title === b.title
 }
 
+function isSensitive(element) {
+  return element.password || !element.name.trim() || DANGEROUS_ELEMENT.test(element.name) || DANGEROUS_ELEMENT.test(element.automationId)
+}
+
 export class ObservationGate {
   #allowedApps
   #observation = null
@@ -46,8 +50,16 @@ export class ObservationGate {
       if (!element || typeof element !== 'object' || !SAFE_TYPES.has(element.type) || typeof element.name !== 'string' || element.name.length > 256 || typeof element.automationId !== 'string' || element.automationId.length > 256 || typeof element.password !== 'boolean' || !Array.isArray(element.patterns) || element.patterns.length > 3 || element.patterns.some(pattern => !SAFE_PATTERNS.has(pattern))) throw new Error('invalid element')
       return Object.freeze({ type: element.type, name: element.name, automationId: element.automationId, password: element.password, patterns: Object.freeze([...element.patterns]) })
     })
-    this.#observation = { id: randomUUID(), helperId, created: Date.now(), identity, elements: safeElements }
-    return { observationId: this.#observation.id, window: identity, elements: safeElements }
+    // Surface application text as data, never as something the model should reason
+    // about as a target: a control whose own label is sensitive never reaches the
+    // model, and the reported index always addresses the same helper-side control.
+    const visible = safeElements
+      .map((element, index) => ({ element, index }))
+      .filter(({ element }) => !isSensitive(element))
+    if (visible.length === 0) throw new Error('no safely actionable control was observed')
+    const reported = visible.map(({ element, index }) => Object.freeze({ ...element, index }))
+    this.#observation = { id: randomUUID(), helperId, created: Date.now(), identity, elements: reported, mapping: visible.map(entry => entry.index) }
+    return { observationId: this.#observation.id, window: identity, elements: reported }
   }
 
   forget() {
@@ -64,15 +76,16 @@ export class ObservationGate {
       if (!observation || observation.id !== observationId || Date.now() - observation.created > 30_000) throw new Error('stale observation')
       if (!Number.isInteger(index) || index < 0 || index >= observation.elements.length || !SAFE_PATTERNS.has(action)) throw new Error('unsupported action')
       const element = observation.elements[index]
-      if (!element || !SAFE_TYPES.has(element.type) || typeof element.name !== 'string' || !element.name.trim() || element.name.length > 256 || !Array.isArray(element.patterns) || !element.patterns.includes(action)) throw new Error('element is not safely actionable')
-      if (element.password || DANGEROUS_ELEMENT.test(element.name) || DANGEROUS_ELEMENT.test(element.automationId ?? '')) throw new Error('element is sensitive or has unknown consequences')
+      if (!element || !SAFE_TYPES.has(element.type) || !SAFE_PATTERNS.has(action) || !element.patterns.includes(action)) throw new Error('element is not safely actionable')
+      if (isSensitive(element)) throw new Error('element is sensitive or has unknown consequences')
       // Every state-changing action requires an explicit one-shot approval; no model-supplied risk field.
       const outcome = await approve({ window: observation.identity, element: { name: element.name, automationId: element.automationId, type: element.type }, action })
       if (outcome !== 'allowed-once') throw new Error(`action was not approved (${outcome})`)
       if (Date.now() - observation.created > 30_000) throw new Error('observation expired while awaiting approval')
       const liveWindow = validateWindow(await currentWindow(observation.identity), this.#allowedApps)
       if (!sameWindow(observation.identity, liveWindow)) throw new Error('window changed after approval')
-      return await deliver({ window: liveWindow, helperId: observation.helperId, index, action })
+      // The model addressed a filtered view; deliver to the control it named.
+      return await deliver({ window: liveWindow, helperId: observation.helperId, index: observation.mapping[index], action })
     } finally {
       this.#busy = false
     }

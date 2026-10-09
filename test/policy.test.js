@@ -35,11 +35,45 @@ test('window changes after approval fail closed', async () => {
   await assert.rejects(run(gate, id, { currentWindow: async () => ({ ...window, pid: 33 }), deliver: () => { throw Error('delivered') } }), /window changed/)
 })
 
-test('sensitive buttons and dangerous titles cannot be selected', async () => {
+test('a sensitive control never reaches the model, and indices stay aligned', async () => {
+  const gate = new ObservationGate(['fixture.exe'])
+  const mixed = [
+    { type: 'Button', name: 'Delete all', automationId: 'del', password: false, patterns: ['Invoke'] },
+    { type: 'Button', name: 'Next', automationId: 'next', password: false, patterns: ['Invoke'] },
+    { type: 'CheckBox', name: '发送邮件', automationId: 'send', password: false, patterns: ['Toggle'] },
+  ]
+  const observed = gate.record(window, mixed, helperId)
+  assert.deepEqual(observed.elements.map(e => e.name), ['Next'])
+  // The model addresses its own filtered view; delivery must reach helper control 1.
+  const delivered = []
+  await run(gate, observed.observationId, { deliver: async payload => { delivered.push(payload.index); return 'ok' } })
+  assert.deepEqual(delivered, [1])
+})
+
+test('an observation containing only sensitive controls is refused', () => {
+  const gate = new ObservationGate(['fixture.exe'])
+  assert.throws(() => gate.record(window, [
+    { type: 'Button', name: 'Uninstall', automationId: 'u', password: false, patterns: ['Invoke'] },
+  ], helperId), /no safely actionable control/)
+})
+
+test('a blank-named control is refused before it reaches the model', () => {
+  const gate = new ObservationGate(['fixture.exe'])
+  assert.throws(() => gate.record(window, [
+    { type: 'Button', name: '   ', automationId: 'blank', password: false, patterns: ['Invoke'] },
+  ], helperId), /no safely actionable control/)
+})
+
+test('dangerous window titles cannot be observed at all', () => {
   const gate = new ObservationGate(['fixture.exe'])
   assert.throws(() => gate.record({ ...window, title: 'Security Settings' }, elements, helperId), /unsafe/)
-  const { observationId: id } = gate.record(window, [{ ...elements[0], name: 'Send' }], helperId)
-  await assert.rejects(run(gate, id), /sensitive/)
+})
+
+test('a dangerous title and a sensitive control both fail closed', async () => {
+  const gate = new ObservationGate(['fixture.exe'])
+  assert.throws(() => gate.record({ ...window, title: 'Windows Security' }, elements, helperId), /unsafe/)
+  // A control whose own label is sensitive never becomes an actionable target.
+  assert.throws(() => gate.record(window, [{ ...elements[0], name: 'Send email' }], helperId), /no safely actionable/)
 })
 
 test('concurrent operation cannot overwrite a pending observation', async () => {

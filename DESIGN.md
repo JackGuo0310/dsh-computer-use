@@ -24,6 +24,21 @@ application name rather than a claim about a signed binary. A forbidden-name lis
 obvious protected surfaces at load time, but it is a guardrail, not the security boundary — the
 boundary is that only allowlisted windows are reachable at all.
 
+## Known limits of the string filters
+
+The forbidden-name and dangerous-label checks are keyword matchers. They reject the surfaces they
+name and nothing more: a window titled `Setup` or `Optional Features` passes the title filter even
+though both can install software or drivers, and any allowlisted application can present a control
+whose label avoids every listed word. Widening the word lists does not close this; only removing an
+application from the allowlist does.
+
+This is deliberate and is why the allowlist is the boundary. An entry is a decision by the operator
+that this application's controls are acceptable to act on, made with the application's purpose in
+mind. The string filters then catch the common accidents inside an allowed application — a dialog
+that turns out to be a login or a payment prompt — rather than attempting to classify every window.
+Control labels remain untrusted input: a sensitive label is withheld from the model before it can
+reason about it as a target.
+
 ## Stage checks
 
 - Protocol validation, size/deadline limits, process startup/exit and concurrent-call teardown.
