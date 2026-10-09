@@ -14,6 +14,16 @@ On load: reject non-Windows, missing mandatory executable allowlist, incompatibl
 
 A separate `prepare` phase computes a concrete action intent from the current observation and UIA element metadata. The executor, not a model risk field or keyword list, rejects prohibited surfaces and marks uncertain input high-risk. A one-shot approval is requested at the execution point, describing target, intended action, and impact; after approval, revalidate the exact window, observation, and target before delivery. Unknown buttons, arbitrary text entry, hotkeys, and screenshot coordinates stay disabled until a defensible approval and confinement design is tested. First release can be read-only plus narrow UIA Invoke/Select/Toggle capabilities; scope expansion is a later stage. UIA can be incomplete in some apps, and foreground fallback will not be silently enabled.
 
+## Application identity
+
+The allowlist matches the executable **file name**, not a canonical path. A full path would be
+stronger, but it breaks whenever the application updates or the profile moves to another machine,
+and the user chose the portable form on 2026-10-09. Two consequences are accepted deliberately: any
+other program installed as `Notepad.exe` also passes, and an allowlist entry is a claim about an
+application name rather than a claim about a signed binary. A forbidden-name list still rejects the
+obvious protected surfaces at load time, but it is a guardrail, not the security boundary — the
+boundary is that only allowlisted windows are reachable at all.
+
 ## Stage checks
 
 - Protocol validation, size/deadline limits, process startup/exit and concurrent-call teardown.
