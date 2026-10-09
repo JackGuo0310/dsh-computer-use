@@ -1,8 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
 import { DRIVER_VERSION, getDriverPaths, getDriverStatus, installDriver } from '../src/driver-install.js'
 
@@ -112,4 +115,46 @@ test('a failed HTTP download reports the status without installing', async () =>
     )
     assert.equal((await getDriverStatus(options)).installed, false)
   } finally { await rm(home, { recursive: true, force: true }) }
+})
+
+test('the extraction script loads the assembly that actually defines ZipFile', async () => {
+  // Regression: Add-Type -AssemblyName System.IO.Compression leaves
+  // [System.IO.Compression.ZipFile] unresolved (TypeNotFound), which made every
+  // installation fail. ZipFile ships in System.IO.Compression.FileSystem.
+  const source = await readFile(fileURLToPath(new URL('../src/driver-install.js', import.meta.url)), 'utf8')
+  assert.match(source, /Add-Type -AssemblyName System\.IO\.Compression\.FileSystem/)
+  assert.doesNotMatch(source, /Add-Type -AssemblyName System\.IO\.Compression\s*$/m)
+})
+
+test('managed paths reach PowerShell through the environment, not trailing -Command args', async () => {
+  // Regression: `powershell -Command <script> <arg>...` does not bind trailing
+  // arguments to a script param() block, so both paths arrived empty and
+  // extraction failed with an illegal-path error. The environment also keeps a
+  // path containing spaces or a quote out of the command text.
+  const source = await readFile(fileURLToPath(new URL('../src/driver-install.js', import.meta.url)), 'utf8')
+  assert.match(source, /'-EncodedCommand'/, 'the script must be UTF-16LE encoded, not passed as raw text')
+  assert.doesNotMatch(source, /'-Command', script/)
+  assert.match(source, /CUA_DRIVER_ARCHIVE/)
+  assert.match(source, /CUA_DRIVER_DESTINATION/)
+
+  // The binding itself, proven against the real interpreter.
+  if (process.platform !== 'win32') return
+  const output = await new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Write-Host ("A=[" + $env:CUA_DRIVER_ARCHIVE + "]")'], {
+      windowsHide: true,
+      encoding: 'utf8',
+      env: { ...process.env, CUA_DRIVER_ARCHIVE: 'C:\\Temp\\a path.zip' },
+    }, (error, stdout) => error ? reject(error) : resolve(stdout))
+  })
+  assert.match(output, /A=\[C:\\Temp\\a path\.zip\]/)
+})
+
+test('the release archive layout is accepted and only the driver binaries are installed', async () => {
+  // The official archive carries the native SDK, a cursor theme and a header
+  // alongside the executables. An exact two-entry expectation rejected it, and
+  // extracting everything would install files this plugin never loads.
+  const source = await readFile(fileURLToPath(new URL('../src/driver-install.js', import.meta.url)), 'utf8')
+  assert.match(source, /entries\.Count -lt/, 'the layout check must allow the real multi-entry archive')
+  assert.doesNotMatch(source, /entries\.Count -ne 2/)
+  assert.match(source, /archive installed an unexpected file/)
 })

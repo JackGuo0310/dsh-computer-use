@@ -13,8 +13,9 @@ const present = { installed: true, supported: true, version: '0.28.0', installed
 async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {}) {
   const registered = []
   const deferredSlot = new Map()
-  const state = []
   const effects = []
+  const dictionaries = new Map()
+  const state = []
   const dependencyHistory = []
   let cursor = 0
   let effectCursor = 0
@@ -42,6 +43,11 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {})
     inject(name, register) { deferredSlot.set(name, register) },
     register(spec, Component) { registered.push({ spec, Component }); return () => { registered.length -= 1 } },
   }
+  const active = locale.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+  const localeService = {
+    register(namespace, dictionary) { dictionaries.set(namespace, dictionary); return () => dictionaries.delete(namespace) },
+    bind(namespace) { return key => dictionaries.get(namespace)?.[active]?.[key] ?? key },
+  }
   let registration
   const sandbox = {
     navigator: { language: locale },
@@ -62,25 +68,26 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {})
     assert.equal(specifier, 'react', 'the artifact may request only the seeded React module')
     return react
   })
-  namespace.apply({ slots })
-  assert.equal(deferredSlot.has('plugins.bundle.config'), true, 'registration waits for the settings slot')
+  const scope = { slots, locale: localeService, effect: run => { run(); return () => {} } }
+  namespace.apply(scope)
+  assert.equal(deferredSlot.has('settings.section'), true, 'registration waits for the Settings section slot')
   for (const register of deferredSlot.values()) register()
 
   const settle = async () => { for (let turn = 0; turn < 5; turn += 1) await new Promise(resolve => setImmediate(resolve)) }
-  const draw = view => {
+  const draw = () => {
     cursor = 0
     effectCursor = 0
     effects.length = 0
-    const element = registered[0].Component({ view })
+    const element = registered[0].Component({})
     for (const effect of effects) effect()
     return element
   }
-  const render = async view => {
-    let element = draw(view)
+  const render = async () => {
+    let element = draw()
     for (let frame = 0; frame < 4; frame += 1) {
       const before = textOf(element)
       await settle()
-      element = draw(view)
+      element = draw()
       if (textOf(element) === before) return element
     }
     return element
@@ -97,14 +104,17 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {})
 
 const textOf = element => JSON.stringify(element)
 
-test('the shipped client half waits for the settings slot and renders its own driver panel', async () => {
+test('the shipped client half registers a Settings section and renders its driver panel', async () => {
   const page = await evaluate()
-  assert.equal([...page.namespace.inject].join(), 'slots')
+  assert.deepEqual([...page.namespace.inject].sort(), ['locale', 'slots'])
   assert.equal(page.registered.length, 1)
-  assert.equal(page.spec.name, 'plugins.bundle.config')
-  // The Plugins page renders this slot with the installed package name as its entry key.
-  assert.equal(page.spec.key, 'dsh-computer-use-safe-win')
-  const text = textOf(await page.render('page'))
+  // A first-class Settings nav entry, not a block inside the Plugins page.
+  assert.equal(page.spec.name, 'settings.section')
+  assert.equal(page.spec.id, 'computer-use-safe-win')
+  assert.equal(typeof page.spec.order, 'number')
+  assert.equal(typeof page.spec.label, 'function', 'the nav label must be localized')
+  assert.equal(page.spec.label(), '电脑操控')
+  const text = textOf(await page.render())
   assert.match(text, /Cua Driver/)
   assert.match(text, /测试驱动/)
   assert.match(text, /安装驱动/)
@@ -112,9 +122,13 @@ test('the shipped client half waits for the settings slot and renders its own dr
   assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
 })
 
+test('the Settings nav label follows the active locale', async () => {
+  assert.equal((await evaluate({ locale: 'en-US' })).spec.label(), 'Computer Use')
+})
+
 test('opening the settings page tests status once and reports the pinned target version', async () => {
   const page = await evaluate({ locale: 'en-US' })
-  const text = textOf(await page.render('page'))
+  const text = textOf(await page.render())
   assert.match(text, /Test driver/)
   assert.match(text, /Install driver/)
   assert.match(text, /Not installed/)
@@ -122,10 +136,10 @@ test('opening the settings page tests status once and reports the pinned target 
   assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
 })
 
-test('nothing renders or calls the Host outside its own settings page', async () => {
+test('the panel is not registered as a Plugins page block any more', async () => {
   const page = await evaluate()
-  assert.equal(await page.render('row'), null)
-  assert.deepEqual(page.seen, [])
+  assert.notEqual(page.spec.name, 'plugins.bundle.config')
+  assert.equal(page.spec.key, undefined, 'a Settings section is keyed by id, not by bundle package name')
 })
 
 test('the install button posts an explicit same-origin confirmation and re-tests', async () => {
@@ -134,13 +148,13 @@ test('the install button posts an explicit same-origin confirmation and re-tests
     if (path.endsWith('/install')) { installed = true; return present }
     return installed ? present : absent
   } })
-  await page.render('page')
-  const element = await page.render('page')
+  await page.render()
+  const element = await page.render()
   await page.press(element, 'Install driver')
   const install = page.seen.find(call => call.path.endsWith('/install'))
   assert.equal(install.options.method, 'POST')
   assert.equal(install.options.headers['x-computer-use-confirm'], 'install-pinned-driver')
-  assert.match(textOf(await page.render('page')), /Managed driver installed \(runtime not tested\)/)
+  assert.match(textOf(await page.render()), /Managed driver installed \(runtime not tested\)/)
 })
 
 test('a refused installation surfaces the Host error without claiming success', async () => {
@@ -148,8 +162,8 @@ test('a refused installation surfaces the Host error without claiming success', 
     if (path.endsWith('/install')) return Object.assign(new Error('local browser required'), { ok: false, json: async () => ({ error: 'Driver installation requires the local authenticated browser' }) })
     return absent
   } })
-  await page.render('page')
-  const element = await page.render('page')
+  await page.render()
+  const element = await page.render()
   await page.press(element, 'Install driver')
-  assert.match(textOf(await page.render('page')), /local authenticated browser/)
+  assert.match(textOf(await page.render()), /local authenticated browser/)
 })

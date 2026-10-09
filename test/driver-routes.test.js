@@ -22,8 +22,16 @@ function harness({ status = async () => installed, install = async () => install
 }
 
 const browser = { 'sec-fetch-site': 'same-origin', 'content-type': 'application/json', 'x-computer-use-confirm': 'install-pinned-driver' }
+/**
+ * Build the request the Connection bridge would really hand a route: the URL is
+ * synthetic (`http://dsh.internal`), while the real authority lives in `Host`.
+ */
 const call = (route, { method = 'GET', headers = {}, body = '', origin = 'http://127.0.0.1:3080' } = {}) =>
-  route.fetch(new Request(`${origin}${route.path}`, { method, headers: { ...headers }, body: method === 'POST' ? body : undefined }))
+  route.fetch(new Request(`http://dsh.internal${route.path}`, {
+    method,
+    headers: { host: new URL(origin).host, ...headers },
+    body: method === 'POST' ? body : undefined,
+  }))
 
 test('both routes live under /api and withdraw with the owning effect', () => {
   const h = harness()
@@ -103,5 +111,41 @@ test('one installation runs at a time', async () => {
     ])
     assert.equal(peak, 1)
     assert.deepEqual([first.status, second.status].sort(), [200, 409])
+  } finally { h.dispose() }
+})
+
+test('the local-browser check reads the Host header, not the synthetic request URL', async () => {
+  // Regression: the Connection bridge builds every routed request against
+  // http://dsh.internal, so a hostname check on request.url never matched a
+  // browser authority and installation was refused for every user.
+  let runs = 0
+  const h = harness({ install: async () => { runs += 1; return installed } })
+  const route = h.routes.get('/api/computer-use-safe-win/install')
+  try {
+    for (const origin of ['http://127.0.0.1:3080', 'http://localhost:3080', 'http://[::1]:3080']) {
+      const response = await call(route, { method: 'POST', headers: browser, body: '{}', origin })
+      assert.equal(response.status, 200, `${origin} is the local browser and must be allowed`)
+    }
+    assert.equal(runs, 3)
+  } finally { h.dispose() }
+})
+
+test('a non-loopback Host is still refused even on the same-origin marker', async () => {
+  let runs = 0
+  const h = harness({ install: async () => { runs += 1; return installed } })
+  const route = h.routes.get('/api/computer-use-safe-win/install')
+  try {
+    for (const origin of ['http://10.0.0.5:3080', 'http://dsh.example.com:3080']) {
+      const response = await call(route, { method: 'POST', headers: browser, body: '{}', origin })
+      assert.equal(response.status, 403, `${origin} must never install an executable`)
+    }
+    // A missing Host header is not evidence of a local browser.
+    const headerless = await route.fetch(new Request('http://dsh.internal/api/computer-use-safe-win/install', {
+      method: 'POST',
+      headers: { ...browser },
+      body: '{}',
+    }))
+    assert.equal(headerless.status, 403)
+    assert.equal(runs, 0)
   } finally { h.dispose() }
 })
