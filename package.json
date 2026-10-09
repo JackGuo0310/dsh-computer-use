@@ -26,6 +26,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
+    "verify:package": "node scripts/verify-package.mjs",
     "build:helper": "dotnet publish native/ComputerUse.Helper.csproj -c Release -o native/publish --self-contained false",
     "prepack": "npm run build:helper",
     "pack:check": "npm pack --dry-run"

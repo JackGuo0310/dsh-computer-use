@@ -20,17 +20,25 @@ verified against a live desktop.
 3. Plugin provider integration, approval, cancellation, and disposal tests.
 4. Packaging, configuration, isolated acceptance, and security review.
 
-Milestones 1–3 have local commits. Milestone 4 is incomplete: packaging is declared but never
-installed into a real profile, and no UIA behavior has been observed.
+Milestones 1–3 have local commits, and packaging is verified by
+`npm run verify:package`. No UIA behavior has been observed: the one live run reached a
+read-only observation of an empty Notepad window, which legitimately contained no actionable
+control.
 
 ## Build and install
 
 ```sh
 npm install
-npm test          # scoped, desktop-free
-npm run build:helper   # dotnet publish into native/publish/
-npm pack              # prepack rebuilds the helper first
+npm test                  # scoped, desktop-free
+npm run build:helper      # dotnet publish into native/publish/
+npm run verify:package    # packs, installs into a scratch tree, loads via the real Loader
+npm pack                  # prepack rebuilds the helper first
 ```
+
+`npm run verify:package` is the install-path proof: it packs the tarball, installs it into a
+temporary directory, resolves it by package name, checks the helper runtime and bundle patch
+shipped inside it, and loads it through the real Loader with the real tools and systemPrompt
+services. It stubs only the helper process, so no desktop is touched.
 
 The package declares `dsh.bundle.patch`, so the plugin manager installs it as a bundle layer.
 `allowedApps` has no default: an empty or forbidden entry fails the plugin load on purpose.
