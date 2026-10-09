@@ -31,7 +31,11 @@
 
 默认测试限定为本仓库 `test/*.test.js`；**禁止不带范围的 `node --test`**，因为忽略的第三方参考仓库含真实桌面自动化测试。
 
-开发命令：`npm test` 仅运行仓库内 `test/*.test.js`；`npm run pack:check` 做 tarball dry-run；`npm run verify:package` 检查打包内容与依赖。以上均为桌面无关检查。不要运行不带范围的 `node --test`。
+开发命令：`npm test` 仅运行仓库内 `test/*.test.js`；`npm run pack:check` 做 tarball dry-run；`npm run verify:package` 检查打包内容与依赖；`npm run verify:install` 把 tarball 装进临时目录后用真实 Loader 验证已安装副本（不注册工具、路由可应答、卸载后撤回）。以上均为桌面无关检查。不要运行不带范围的 `node --test`。
+
+## 尚未验证
+
+浏览器半的**真实渲染**未在本仓库验证：DSH 只在运行中的 Web GUI 里加载 `client.js`，本仓库无法启动替换服务器。`test/client-bundle.test.js` 在 `node:vm` 中加载真实产物并驱动组件，覆盖状态读取、安装确认、错误呈现与仅在配置页渲染，但 React 调和、slot 渲染器交互和实际点击未在此验证。安装后请在 Plugins 设置页确认 `dsh-computer-use-safe-win` 行存在、配置页出现两个按钮。
 
 实施按小阶段做本地 Git commit，不 push。保留既有用户改动，不通过重置工作树掩盖迁移。
 
