@@ -1,6 +1,9 @@
 # DSH Windows Computer Use
 
-An opt-in Windows desktop computer-use provider for DeepSeek Harness. This project is under staged development; it does not yet expose desktop tools.
+An opt-in Windows desktop computer-use provider for DeepSeek Harness. The three tools
+(`safe_win_inspect`, `safe_win_observe`, `safe_win_act`) are gated on a configured executable
+allowlist, a fresh observation, and one-time user approval. No stage of this project has been
+verified against a live desktop.
 
 ## Scope and safety
 
@@ -16,6 +19,21 @@ An opt-in Windows desktop computer-use provider for DeepSeek Harness. This proje
 2. Windows helper protocol, policy, and isolated tests.
 3. Plugin provider integration, approval, cancellation, and disposal tests.
 4. Packaging, configuration, isolated acceptance, and security review.
+
+Milestones 1–3 have local commits. Milestone 4 is incomplete: packaging is declared but never
+installed into a real profile, and no UIA behavior has been observed.
+
+## Build and install
+
+```sh
+npm install
+npm test          # scoped, desktop-free
+npm run build:helper   # dotnet publish into native/publish/
+npm pack              # prepack rebuilds the helper first
+```
+
+The package declares `dsh.bundle.patch`, so the plugin manager installs it as a bundle layer.
+`allowedApps` has no default: an empty or forbidden entry fails the plugin load on purpose.
 
 No stage will be pushed. Each verified stage receives its own local Git commit.
 

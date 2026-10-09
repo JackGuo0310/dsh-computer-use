@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Windows.Automation;
 
@@ -11,17 +12,27 @@ internal static class Program
     private static readonly Dictionary<string, Snapshot> Snapshots = new();
     private static readonly HashSet<string> AllowedTypes = new(StringComparer.Ordinal) { "Button", "CheckBox", "RadioButton", "MenuItem", "TabItem", "ListItem" };
     private static readonly HashSet<string> AllowedActions = new(StringComparer.Ordinal) { "Invoke", "Select", "Toggle" };
+    private const int MaxElements = 100;
+    private const int MaxAncestryDepth = 256;
+    private static readonly TimeSpan ObservationLifetime = TimeSpan.FromSeconds(30);
 
     [STAThread]
     private static void Main()
     {
-        while (Console.ReadLine() is { } line)
+        using var input = Console.In;
+        while (true)
         {
             Request request;
-            try { request = Protocol.Parse(line); }
+            try
+            {
+                var line = ReadLine(input);
+                if (line is null) break;
+                request = Protocol.Parse(line);
+            }
             catch (Exception error) when (error is JsonException or InvalidDataException)
             {
-                Console.WriteLine(Protocol.Encode("", null, error.Message));
+                // A rejected line was already drained; the stream stays synchronized.
+                Write(Protocol.Encode("", null, error.Message));
                 continue;
             }
             try
@@ -34,14 +45,46 @@ internal static class Program
                     "invoke" => Invoke(request.Parameters),
                     _ => throw new InvalidDataException("unknown operation")
                 };
-                Console.WriteLine(Protocol.Encode(request.Id, result, null));
+                Write(Protocol.Encode(request.Id, result, null));
             }
             catch (Exception error)
             {
                 Snapshots.Clear();
-                Console.WriteLine(Protocol.Encode(request.Id, null, error is InvalidDataException ? error.Message : "Windows automation operation failed"));
+                var message = error is InvalidDataException ? error.Message : "Windows automation operation failed";
+                try { Write(Protocol.Encode(request.Id, null, message)); }
+                catch (InvalidDataException) { Write(Protocol.Encode(request.Id, null, "response exceeds protocol limits")); }
             }
         }
+    }
+
+    /// Reads one newline-terminated request. Buffering stops at the protocol limit and
+    /// the remaining characters are discarded, so an over-long request is rejected
+    /// without allocating a line of unbounded length.
+    private static string? ReadLine(TextReader input)
+    {
+        var builder = new StringBuilder();
+        var oversized = false;
+        int value;
+        while ((value = input.Read()) >= 0)
+        {
+            if (value != '\n')
+            {
+                if (builder.Length < Protocol.MaxLineLength) builder.Append((char)value);
+                else oversized = true;
+                continue;
+            }
+            if (oversized) throw new InvalidDataException("request exceeds protocol limits");
+            return builder.ToString().TrimEnd('\r');
+        }
+        if (builder.Length == 0) return null;
+        if (oversized) throw new InvalidDataException("request exceeds protocol limits");
+        return builder.ToString();
+    }
+
+    private static void Write(string line)
+    {
+        Console.Out.WriteLine(line);
+        Console.Out.Flush();
     }
 
     private static WindowIdentity Inspect(JsonElement input)
@@ -57,29 +100,56 @@ internal static class Program
         var identity = GetWindow(hwnd);
         var root = AutomationElement.FromHandle(hwnd);
         if (root is null) throw new InvalidDataException("UI Automation window unavailable");
-        var children = root.FindAll(TreeScope.Descendants, Condition.TrueCondition);
         var elements = new List<object>();
-        var handles = new List<AutomationElement>();
-        for (var i = 0; i < children.Count && handles.Count < 100; i++)
+        var targets = new List<ObservedElement>();
+        foreach (var element in Walk(root, identity.pid))
         {
-            try
+            var fingerprint = Describe(element);
+            if (fingerprint is null || fingerprint.Patterns.Count == 0) continue;
+            targets.Add(new ObservedElement(element, fingerprint));
+            elements.Add(new
             {
-                var element = children[i];
-                var type = element.Current.ControlType.ProgrammaticName.Replace("ControlType.", "", StringComparison.Ordinal);
-                if (!AllowedTypes.Contains(type) || element.Current.IsPassword || !element.Current.IsEnabled) continue;
-                var patterns = new List<string>();
-                if (element.TryGetCurrentPattern(InvokePattern.Pattern, out _)) patterns.Add("Invoke");
-                if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _)) patterns.Add("Select");
-                if (element.TryGetCurrentPattern(TogglePattern.Pattern, out _)) patterns.Add("Toggle");
-                if (patterns.Count == 0) continue;
-                handles.Add(element);
-                elements.Add(new { type, name = element.Current.Name, automationId = element.Current.AutomationId, password = false, patterns });
-            }
-            catch (ElementNotAvailableException) { }
+                fingerprint.Type,
+                name = Bound(fingerprint.Name),
+                automationId = Bound(fingerprint.AutomationId),
+                password = false,
+                fingerprint.Patterns
+            });
+            if (targets.Count >= MaxElements) break;
+            if (elements.Count > Protocol.MaxResponseLength / 256) throw new InvalidDataException("observation exceeds protocol limits");
         }
         var observationId = Guid.NewGuid().ToString("N");
-        Snapshots[observationId] = new Snapshot(identity, handles, DateTime.UtcNow);
+        Snapshots[observationId] = new Snapshot(identity, targets, DateTime.UtcNow);
         return new { observationId, window = identity, elements };
+    }
+
+    /// Enumerates descendants breadth-first so a wide provider costs a bounded depth.
+    private static IEnumerable<AutomationElement> Walk(AutomationElement root, int pid)
+    {
+        var walker = TreeWalker.ControlViewWalker;
+        var queue = new Queue<(AutomationElement Element, int Depth)>();
+        queue.Enqueue((root, 0));
+        while (queue.Count > 0)
+        {
+            var (element, depth) = queue.Dequeue();
+            AutomationElement child;
+            try { child = walker.GetFirstChild(element); }
+            catch (ElementNotAvailableException) { continue; }
+            while (child is not null)
+            {
+                bool alive;
+                try
+                {
+                    // A control owned by another process is not part of the observed window.
+                    alive = child.Current.ProcessId == pid;
+                    if (depth + 1 < MaxAncestryDepth) queue.Enqueue((child, depth + 1));
+                }
+                catch (ElementNotAvailableException) { alive = false; }
+                if (alive) yield return child;
+                try { child = walker.GetNextSibling(child); }
+                catch (ElementNotAvailableException) { yield break; }
+            }
+        }
     }
 
     private static object Invoke(JsonElement input)
@@ -87,22 +157,65 @@ internal static class Program
         var id = ReadString(input, "observationId");
         var snapshot = Snapshots.GetValueOrDefault(id);
         Snapshots.Clear(); // A failed or ambiguous attempt still consumes the entire observation.
-        if (snapshot is null || DateTime.UtcNow - snapshot.Created > TimeSpan.FromSeconds(30)) throw new InvalidDataException("observation expired");
+        if (snapshot is null || DateTime.UtcNow - snapshot.Created > ObservationLifetime) throw new InvalidDataException("observation expired");
         var index = ReadInt(input, "index");
         var action = ReadString(input, "action");
         if (!AllowedActions.Contains(action) || index < 0 || index >= snapshot.Elements.Count) throw new InvalidDataException("unsupported target or action");
         var actual = GetWindow((nint)snapshot.Window.hwnd);
         if (actual != snapshot.Window) throw new InvalidDataException("window changed");
-        var target = snapshot.Elements[index];
-        var type = target.Current.ControlType.ProgrammaticName.Replace("ControlType.", "", StringComparison.Ordinal);
-        if (!AllowedTypes.Contains(type) || target.Current.IsPassword || !target.Current.IsEnabled) throw new InvalidDataException("target is unavailable");
-        if (target.Current.ProcessId != snapshot.Window.pid) throw new InvalidDataException("target process changed");
-        if (action == "Invoke" && target.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke)) ((InvokePattern)invoke).Invoke();
-        else if (action == "Select" && target.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var select)) ((SelectionItemPattern)select).Select();
-        else if (action == "Toggle" && target.TryGetCurrentPattern(TogglePattern.Pattern, out var toggle)) ((TogglePattern)toggle).Toggle();
+        var entry = snapshot.Elements[index];
+        if (!entry.Element.Current.IsEnabled || entry.Element.Current.IsOffscreen) throw new InvalidDataException("target is unavailable");
+        var current = Describe(entry.Element);
+        if (current is null || !current.Matches(entry.Fingerprint)) throw new InvalidDataException("target changed since observation");
+        if (!DescendsFrom(entry.Element, (nint)snapshot.Window.hwnd)) throw new InvalidDataException("target no longer belongs to the observed window");
+        if (action == "Invoke" && entry.Element.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke)) ((InvokePattern)invoke).Invoke();
+        else if (action == "Select" && entry.Element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var select)) ((SelectionItemPattern)select).Select();
+        else if (action == "Toggle" && entry.Element.TryGetCurrentPattern(TogglePattern.Pattern, out var toggle)) ((TogglePattern)toggle).Toggle();
         else throw new InvalidDataException("target no longer supports action");
         return new { delivered = true }; // Delivery does not prove outcome. Observe again.
     }
+
+    /// Confirms the element still sits under the approved window, so a reparented or
+    /// moved control cannot receive an action approved for a different target.
+    private static bool DescendsFrom(AutomationElement element, nint hwnd)
+    {
+        var root = AutomationElement.FromHandle(hwnd);
+        if (root is null || !root.Current.NativeWindowHandle.Equals(hwnd)) return false;
+        var walker = TreeWalker.ControlViewWalker;
+        var current = element;
+        for (var depth = 0; depth < MaxAncestryDepth; depth++)
+        {
+            AutomationElement parent;
+            try { parent = walker.GetParent(current); }
+            catch (ElementNotAvailableException) { return false; }
+            if (parent is null) return false;
+            try
+            {
+                if (parent.Current.NativeWindowHandle.Equals(hwnd)) return true;
+            }
+            catch (ElementNotAvailableException) { return false; }
+            current = parent;
+        }
+        return false;
+    }
+
+    private static Fingerprint? Describe(AutomationElement element)
+    {
+        try
+        {
+            var current = element.Current;
+            var type = current.ControlType.ProgrammaticName.Replace("ControlType.", "", StringComparison.Ordinal);
+            if (!AllowedTypes.Contains(type) || current.IsPassword || !current.IsEnabled) return null;
+            var patterns = new List<string>();
+            if (element.TryGetCurrentPattern(InvokePattern.Pattern, out _)) patterns.Add("Invoke");
+            if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _)) patterns.Add("Select");
+            if (element.TryGetCurrentPattern(TogglePattern.Pattern, out _)) patterns.Add("Toggle");
+            return new Fingerprint(type, current.Name ?? "", current.AutomationId ?? "", patterns);
+        }
+        catch (ElementNotAvailableException) { return null; }
+    }
+
+    private static string Bound(string value) => value.Length > 256 ? value[..256] : value;
 
     private static WindowIdentity GetWindow(nint hwnd)
     {
@@ -111,11 +224,13 @@ internal static class Program
         if (pid == 0) throw new InvalidDataException("window process unavailable");
         var process = Process.GetProcessById(checked((int)pid));
         var executable = Path.GetFileName(process.MainModule?.FileName) ?? throw new InvalidDataException("executable unavailable");
+        // Process start time rejects a reused window handle whose pid was recycled.
+        var started = process.StartTime.ToUniversalTime();
         var titleLength = GetWindowTextLength(hwnd);
         if (titleLength <= 0 || titleLength > 512) throw new InvalidDataException("window title unavailable");
-        var title = new System.Text.StringBuilder(titleLength + 1);
+        var title = new StringBuilder(titleLength + 1);
         GetWindowText(hwnd, title, title.Capacity);
-        return new WindowIdentity((long)hwnd, checked((int)pid), executable, title.ToString());
+        return new WindowIdentity((long)hwnd, checked((int)pid), started, executable, title.ToString());
     }
 
     private static nint ReadHwnd(JsonElement input) => checked((nint)ReadLong(input, "hwnd"));
@@ -135,8 +250,15 @@ internal static class Program
         return value.GetString()!;
     }
 
-    private sealed record Snapshot(WindowIdentity Window, List<AutomationElement> Elements, DateTime Created);
-    private sealed record WindowIdentity(long hwnd, int pid, string app, string title);
+    private sealed record Snapshot(WindowIdentity Window, List<ObservedElement> Elements, DateTime Created);
+    private sealed record ObservedElement(AutomationElement Element, Fingerprint Fingerprint);
+    private sealed record Fingerprint(string Type, string Name, string AutomationId, List<string> Patterns)
+    {
+        /// Compares every field that identifies the approved control.
+        internal bool Matches(Fingerprint other) =>
+            Type == other.Type && Name == other.Name && AutomationId == other.AutomationId && Patterns.SequenceEqual(other.Patterns);
+    }
+    private sealed record WindowIdentity(long hwnd, int pid, DateTime processStarted, string app, string title);
 
     [DllImport("user32.dll")] private static extern bool IsWindow(nint hWnd);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint hWnd);

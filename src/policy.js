@@ -36,15 +36,24 @@ export class ObservationGate {
 
   constructor(allowedApps) { this.#allowedApps = configuredApps(allowedApps) }
 
-  record(window, elements) {
+  record(window, elements, helperId) {
     if (this.#busy) throw new Error('operation in progress')
+    this.#observation = null
     const identity = validateWindow(window, this.#allowedApps)
+    if (typeof helperId !== 'string' || !/^[a-f0-9]{32}$/i.test(helperId)) throw new Error('invalid helper observation')
     if (!Array.isArray(elements) || elements.length > 100) throw new Error('invalid element inventory')
-    this.#observation = { id: randomUUID(), created: Date.now(), identity, elements }
-    return { id: this.#observation.id, window: identity, elements }
+    const safeElements = elements.map(element => {
+      if (!element || typeof element !== 'object' || !SAFE_TYPES.has(element.type) || typeof element.name !== 'string' || element.name.length > 256 || typeof element.automationId !== 'string' || element.automationId.length > 256 || typeof element.password !== 'boolean' || !Array.isArray(element.patterns) || element.patterns.length > 3 || element.patterns.some(pattern => !SAFE_PATTERNS.has(pattern))) throw new Error('invalid element')
+      return Object.freeze({ type: element.type, name: element.name, automationId: element.automationId, password: element.password, patterns: Object.freeze([...element.patterns]) })
+    })
+    this.#observation = { id: randomUUID(), helperId, created: Date.now(), identity, elements: safeElements }
+    return { observationId: this.#observation.id, window: identity, elements: safeElements }
   }
 
-  forget() { this.#observation = null }
+  forget() {
+    if (this.#busy) throw new Error('operation in progress')
+    this.#observation = null
+  }
 
   async execute({ observationId, index, action, currentWindow, approve, deliver }) {
     if (this.#busy) throw new Error('operation in progress')
@@ -58,11 +67,12 @@ export class ObservationGate {
       if (!element || !SAFE_TYPES.has(element.type) || typeof element.name !== 'string' || !element.name.trim() || element.name.length > 256 || !Array.isArray(element.patterns) || !element.patterns.includes(action)) throw new Error('element is not safely actionable')
       if (element.password || DANGEROUS_ELEMENT.test(element.name) || DANGEROUS_ELEMENT.test(element.automationId ?? '')) throw new Error('element is sensitive or has unknown consequences')
       // Every state-changing action requires an explicit one-shot approval; no model-supplied risk field.
-      const outcome = await approve({ window: observation.identity, element: { name: element.name, type: element.type }, action })
+      const outcome = await approve({ window: observation.identity, element: { name: element.name, automationId: element.automationId, type: element.type }, action })
       if (outcome !== 'allowed-once') throw new Error(`action was not approved (${outcome})`)
-      const liveWindow = validateWindow(await currentWindow(), this.#allowedApps)
+      if (Date.now() - observation.created > 30_000) throw new Error('observation expired while awaiting approval')
+      const liveWindow = validateWindow(await currentWindow(observation.identity), this.#allowedApps)
       if (!sameWindow(observation.identity, liveWindow)) throw new Error('window changed after approval')
-      return await deliver({ window: liveWindow, element, action })
+      return await deliver({ window: liveWindow, helperId: observation.helperId, index, action })
     } finally {
       this.#busy = false
     }
