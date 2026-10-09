@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Windows 电脑操控（只读）",
-    "description": "通过受管 Cua Driver 观察白名单内的 Windows 窗口。可在本页安装驱动并测试安装状态。"
+    "description": "通过受管 Cua Driver 观察白名单内的 Windows 窗口。在设置中安装驱动并测试安装状态。"
   }
 }

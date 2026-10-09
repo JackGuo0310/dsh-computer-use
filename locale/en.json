@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Windows Computer Use (read-only)",
-    "description": "Inspect allowlisted Windows windows through a managed Cua Driver. Install the driver and test its status from this page."
+    "description": "Inspect allowlisted Windows windows through a managed Cua Driver. Install the driver and test its status from Settings."
   }
 }
