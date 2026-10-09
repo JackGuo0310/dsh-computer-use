@@ -1,6 +1,6 @@
 {
   "name": "dsh-computer-use-safe-win",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "main": "./src/plugin.js",
@@ -31,7 +31,6 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
     "@trycua/cua-driver": "0.28.0"
   },
   "engines": {
@@ -47,6 +46,7 @@
     "@deepseek-ai/cordis-plugin-include": "^1.0.10-alpha.1",
     "@deepseek-ai/cordis-plugin-loader": "^1.0.6-alpha.1",
     "@deepseek-ai/dsh-system-prompt": "^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-user-approval": "^0.2.1-alpha.1"
   }
 }
