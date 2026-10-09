@@ -85,6 +85,24 @@ test('a window replaced during approval fails closed before delivery', async () 
   }), /window changed/)
 })
 
+test('the reported index maps back to the same helper-side control', async () => {
+  // The helper keeps every control it reported, in its own order; only the model
+  // view is filtered. If the helper ever filtered first, this mapping would
+  // silently address the wrong control, so the contract is pinned here.
+  const gate = new ObservationGate(['fixture.exe'])
+  const helperOrder = ['Delete', 'Next', 'Save', '发送']
+  const observed = gate.record('agent-a', window, helperOrder.map((name, index) => ({
+    type: 'Button', name, automationId: `id-${index}`, password: false, patterns: ['Invoke'],
+  })), helperId)
+  assert.deepEqual(observed.elements.map(element => element.name), ['Next', 'Save'])
+  // The reported index is the position in the filtered view; it is deliberately
+  // not the helper-side index, which the mapping resolves at delivery.
+  assert.deepEqual(observed.elements.map(element => element.index), [0, 1])
+  const delivered = []
+  await run(gate, observed.observationId, { index: 1, deliver: async p => { delivered.push(p.index) } })
+  assert.deepEqual(delivered, [2], 'model index 1 (Save) must reach helper control 2')
+})
+
 test('two agents do not share observation state', async () => {
   const gate = new ObservationGate(['fixture.exe'])
   const a = gate.record('agent-a', window, elements, helperId)

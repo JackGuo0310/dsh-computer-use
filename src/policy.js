@@ -60,8 +60,10 @@ export class ObservationGate {
       .map((element, index) => ({ element, index }))
       .filter(({ element }) => !isSensitive(element))
     if (visible.length === 0) throw new Error('no safely actionable control was observed')
-    const reported = visible.map(({ element, index }) => Object.freeze({ ...element, index }))
-    this.#observations.set(owner, { id: randomUUID(), helperId, created: Date.now(), identity, elements: reported, mapping: visible.map(entry => entry.index) })
+    // The model addresses a position in this filtered list, so the reported index
+    // is the position here; the helper-side index is kept only for delivery.
+    const reported = visible.map(({ element }, position) => Object.freeze({ ...element, index: position }))
+    this.#observations.set(owner, { id: randomUUID(), helperId, created: Date.now(), identity, elements: reported, helperIndex: visible.map(entry => entry.index) })
     return { observationId: this.#observations.get(owner).id, window: identity, elements: reported }
   }
 
@@ -98,7 +100,7 @@ export class ObservationGate {
       if (!sameWindow(observation.identity, liveWindow)) throw new Error('window changed after approval')
       if (Date.now() - observation.created > 30_000) throw new Error('observation expired before delivery')
       // The model addressed a filtered view; deliver to the control it named.
-      return await deliver({ window: liveWindow, helperId: observation.helperId, index: observation.mapping[index], action })
+      return await deliver({ window: liveWindow, helperId: observation.helperId, index: observation.helperIndex[index], action })
     } finally {
       this.#busy.delete(owner)
     }
