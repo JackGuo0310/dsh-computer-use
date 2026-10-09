@@ -46,6 +46,7 @@ function harness({ approval, tools = {}, computerUse = {} } = {}) {
   })
   state.ctx = ctx
   ctx.provide('tools', {
+    // The real ToolRuntime returns the exact disposer, so this stub must too.
     register(definition) {
       state.registrations.push(definition.name)
       state.definitions.push(definition)

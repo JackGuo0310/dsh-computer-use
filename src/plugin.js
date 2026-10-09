@@ -79,6 +79,7 @@ export async function startSafeWinProvider(ctx, { allowedApps, startHelper }) {
       inject: ['tools', 'systemPrompt'],
       apply(inner) {
         inner.effect(function* () {
+          // Each registration returns the exact disposer that unregisters the tool.
           yield inner.tools.register(tool('safe_win_inspect', 'Read the identity of one known top-level Windows application window without interacting with it.', {
             hwnd: { type: 'integer', required: true, description: 'Known native top-level window handle as a positive integer. Never guess or derive it.' },
           }, async (args, exec) => run(exec, async signal => {

@@ -3,19 +3,37 @@
   "version": "0.1.0",
   "type": "module",
   "main": "./src/plugin.js",
-  "files": ["src", "cordis.patch.yml", "README.md", "DESIGN.md", "native/publish/**"],
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "README.md",
+    "DESIGN.md",
+    "native/publish/**"
+  ],
   "exports": {
     ".": "./src/plugin.js"
   },
   "dsh": {
-    "bundle": { "patch": "cordis.patch.yml" }
+    "bundle": {
+      "patch": "cordis.patch.yml"
+    }
   },
-  "dependencies": { "@deepseek-ai/dsh-tools": "0.2.1-alpha.1" },
-  "engines": { "node": ">=22.19" },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
   "scripts": {
     "test": "node --test test/*.test.js",
     "build:helper": "dotnet publish native/ComputerUse.Helper.csproj -c Release -o native/publish --self-contained false",
     "prepack": "npm run build:helper",
     "pack:check": "npm pack --dry-run"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis-plugin-include": "^1.0.10-alpha.1",
+    "@deepseek-ai/cordis-plugin-loader": "^1.0.6-alpha.1",
+    "@deepseek-ai/dsh-system-prompt": "^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-user-approval": "^0.2.1-alpha.1"
   }
 }
