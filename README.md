@@ -1,56 +1,30 @@
 # DSH Windows Computer Use
 
-An opt-in Windows desktop computer-use provider for DeepSeek Harness. The three tools
-(`safe_win_inspect`, `safe_win_observe`, `safe_win_act`) are gated on a configured executable
-allowlist, a fresh observation, and one-time user approval.
+独立、按需启用的 DeepSeek Harness Windows computer-use 插件。
 
-**Nothing here has delivered a real UI action yet.** Read-only inspection and observation have
-run against a live Notepad window; `safe_win_act` has only been exercised against stubs and a
-recorded helper, never against a real control.
+## 当前决策与实现状态
 
-## Scope and safety
+**2026-10-09 用户已批准全面切换 Cua Driver，并停止旧方案。** 桌面操作使用独立进程中的 Cua；本插件保留应用白名单、观察绑定、执行点审批、取消与结果验证。最终删除自研 .NET UIA/Win32 helper，不保留双后端或自动回退。
 
-- No desktop input, screenshots, or window inspection during development on a user's live desktop without explicit consent for that specific run. Verify UI automation only in an isolated fixture or VM.
-- A configured executable allowlist is mandatory. The implementation must bind each action to a fresh observation of a selected window and re-check its identity immediately before input.
-- Programmatic UI Automation is preferred over foreground pointer/keyboard input. Foreground input can move the user's pointer and focus and cannot be confined by a helper process.
-- Disallow terminals, login/password flows, security settings, and DSH itself. Ask for an explicit one-time user decision before a concrete sensitive or irreversible action; model-authored risk labels are not authority.
-- Treat displayed application content as untrusted instructions. Cancellation cannot retract input already delivered.
+- 完整迁移方案：[DESIGN.md](<DESIGN.md>)。
+- 新会话可直接使用的实施提示词：[HANDOFF.md](<HANDOFF.md>)。
+- **当前运行代码仍是旧 .NET 实现，本轮只修改文档。Cua 后端尚未实施或验收。**
 
-## Milestones
+之前的 Notepad 只读验收及 helper mock 测试均属于旧后端，不是 Cua 的验证结果。旧动作入口也没有经过真实控件验收。不要继续旧方案的实时验收，不要把上游支持能力写成本插件已通过的能力。
 
-1. Baseline design and verified DSH integration points.
-2. Windows helper protocol, policy, and isolated tests.
-3. Plugin provider integration, approval, cancellation, and disposal tests.
-4. Packaging, configuration, isolated acceptance, and security review.
+## 不能放宽的约束
 
-Milestones 1–3 have local commits. Packaging, configuration validation, approval
-failure, and the security review of milestone 4 are done and covered by tests. The remaining
-milestone-4 item is the live acceptance run: `safe_win_act` has never delivered an action to a
-real control.
+- 白名单按可执行文件名匹配，如 `notepad.exe`；不改为完整路径匹配。文件名不是签名认证。
+- Cua 原生桌面运行时不能在 DSH host 内执行；版本与隔离路径先核实，再锁定一种实现。
+- 模型只能调用本插件受控入口，不能直接访问上游全量工具。
+- 每个状态改变动作需要一次明确用户批准；审批拒绝、缺失、取消或目标变化均拒绝执行。
+- 后台输入拒绝不能自动回退前台；取消不能撤销已送出的输入；动作后重新观察不等于业务目标已验证。
+- 未经用户针对具体运行批准，不枚举真实桌面、不截图、不发输入。live 验收仅在批准后的隔离 fixture/VM 中进行。
 
-## Build and install
+## 开发与交接
 
-```sh
-npm install
-npm test                  # scoped, desktop-free Node tests
-npm run test:helper       # protocol tests, in-process, no window or process
-npm run test:all          # both suites
-npm run build:helper      # dotnet publish into native/publish/
-npm run verify:package    # packs, installs into a scratch tree, loads via the real Loader
-npm pack                  # prepack rebuilds the helper first
-```
+默认测试限定为本仓库 `test/*.test.js`；**禁止不带范围的 `node --test`**，因为忽略的第三方参考仓库含真实桌面自动化测试。
 
-Neither suite touches the desktop: the Node tests stub the helper, and the C# tests exercise
-request parsing and encoding without constructing a window, a process or an AutomationElement.
+当前安装、prepack、helper 测试和打包逻辑仍服务旧后端；新会话须依照迁移方案一并替换，不能原样运行并称为 Cua 的打包验证。方案文档没有启动 runtime、安装 Cua、改 DSH 配置或执行桌面测试。
 
-`npm run verify:package` is the install-path proof: it packs the tarball, installs it into a
-temporary directory, resolves it by package name, checks the helper runtime and bundle patch
-shipped inside it, and loads it through the real Loader with the real tools and systemPrompt
-services. It stubs only the helper process, so no desktop is touched.
-
-The package declares `dsh.bundle.patch`, so the plugin manager installs it as a bundle layer.
-`allowedApps` has no default: an empty or forbidden entry fails the plugin load on purpose.
-
-No stage will be pushed. Each verified stage receives its own local Git commit.
-
-**Test safety:** `npm test` selects only `test/*.test.js` in this repository. Never run recursive `node --test` from this workspace: its ignored `OtherRepo/` contains third-party tests that can operate the real desktop. On 2026-10-09 an unscoped test run was stopped after a user-reported desktop popup; do not repeat it.
+实施按小阶段做本地 Git commit，不 push。保留既有用户改动，不通过重置工作树掩盖迁移。
