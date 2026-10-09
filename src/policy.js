@@ -35,14 +35,17 @@ function isSensitive(element) {
 
 export class ObservationGate {
   #allowedApps
-  #observation = null
-  #busy = false
+  // The provider slot is exclusive but shared by every agent, so observations are
+  // held per agent: one agent observing must not invalidate another's pending
+  // action, and one agent acting must not block another's observation.
+  #observations = new Map()
+  #busy = new Set()
 
   constructor(allowedApps) { this.#allowedApps = configuredApps(allowedApps) }
 
-  record(window, elements, helperId) {
-    if (this.#busy) throw new Error('operation in progress')
-    this.#observation = null
+  record(owner, window, elements, helperId) {
+    if (this.#busy.has(owner)) throw new Error('operation in progress')
+    this.#observations.delete(owner)
     const identity = validateWindow(window, this.#allowedApps)
     if (typeof helperId !== 'string' || !/^[a-f0-9]{32}$/i.test(helperId)) throw new Error('invalid helper observation')
     if (!Array.isArray(elements) || elements.length > 100) throw new Error('invalid element inventory')
@@ -58,20 +61,26 @@ export class ObservationGate {
       .filter(({ element }) => !isSensitive(element))
     if (visible.length === 0) throw new Error('no safely actionable control was observed')
     const reported = visible.map(({ element, index }) => Object.freeze({ ...element, index }))
-    this.#observation = { id: randomUUID(), helperId, created: Date.now(), identity, elements: reported, mapping: visible.map(entry => entry.index) }
-    return { observationId: this.#observation.id, window: identity, elements: reported }
+    this.#observations.set(owner, { id: randomUUID(), helperId, created: Date.now(), identity, elements: reported, mapping: visible.map(entry => entry.index) })
+    return { observationId: this.#observations.get(owner).id, window: identity, elements: reported }
   }
 
-  forget() {
-    if (this.#busy) throw new Error('operation in progress')
-    this.#observation = null
+  forget(owner) {
+    if (this.#busy.has(owner)) throw new Error('operation in progress')
+    this.#observations.delete(owner)
   }
 
-  async execute({ observationId, index, action, currentWindow, approve, deliver }) {
-    if (this.#busy) throw new Error('operation in progress')
-    this.#busy = true
-    const observation = this.#observation
-    this.#observation = null // Consume before any await, including denials or ambiguous failures.
+  /** Drops every pending observation, used when the provider is torn down. */
+  forgetAll() {
+    if (this.#busy.size) throw new Error('operation in progress')
+    this.#observations.clear()
+  }
+
+  async execute({ owner, observationId, index, action, currentWindow, approve, deliver }) {
+    if (this.#busy.has(owner)) throw new Error('operation in progress')
+    this.#busy.add(owner)
+    const observation = this.#observations.get(owner)
+    this.#observations.delete(owner) // Consume before any await, including denials or ambiguous failures.
     try {
       if (!observation || observation.id !== observationId || Date.now() - observation.created > 30_000) throw new Error('stale observation')
       if (!Number.isInteger(index) || index < 0 || index >= observation.elements.length || !SAFE_PATTERNS.has(action)) throw new Error('unsupported action')
@@ -87,7 +96,7 @@ export class ObservationGate {
       // The model addressed a filtered view; deliver to the control it named.
       return await deliver({ window: liveWindow, helperId: observation.helperId, index: observation.mapping[index], action })
     } finally {
-      this.#busy = false
+      this.#busy.delete(owner)
     }
   }
 }

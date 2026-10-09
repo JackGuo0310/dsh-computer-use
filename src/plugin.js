@@ -34,6 +34,16 @@ const jsonOutput = {
   render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
 }
 
+/**
+ * Identifies the caller whose observation slot a call belongs to. The provider
+ * slot is exclusive but shared, so two agents must not share pending state. The
+ * agent identity is taken from its stable id rather than the object, because the
+ * same agent appears as a fresh reference on every call.
+ */
+function ownerOf(exec) {
+  return exec.agent?.id ?? exec.rootCallId ?? exec.callId
+}
+
 function tool(toolName, description, parameters, execute) {
   return defineTool({ name: toolName, description, parameters, output: jsonOutput, execute })
 }
@@ -69,7 +79,7 @@ export async function startSafeWinProvider(ctx, { allowedApps, startHelper }) {
     }
     yield async () => {
       lifetime.abort(new Error('plugin unloading'))
-      try { gate.forget() } catch { /* An action is already draining; it consumed its observation. */ }
+      try { gate.forgetAll() } catch { /* An action is already draining; it consumed its observation. */ }
       await ready.catch(() => {})
       await Promise.allSettled(pending)
       await helper?.close()
@@ -91,13 +101,14 @@ export async function startSafeWinProvider(ctx, { allowedApps, startHelper }) {
           }, async (args, exec) => run(exec, async signal => {
             const identity = validateWindow(await helper.call('inspect', { hwnd: args.hwnd }, signal), allowedApps)
             const result = await helper.call('observe', { hwnd: identity.hwnd }, signal)
-            return gate.record(result.window, result.elements, result.observationId)
+            return gate.record(ownerOf(exec), result.window, result.elements, result.observationId)
           })))
           yield inner.tools.register(tool('safe_win_act', 'Ask for one-time user approval, then invoke exactly one previously observed control.', {
             observationId: { type: 'string', required: true, description: 'observationId returned by the matching safe_win_observe call.' },
             index: { type: 'integer', required: true, description: 'Zero-based control index within that observation.' },
             action: { type: 'string', required: true, enum: ['Invoke', 'Select', 'Toggle'], description: 'Only an action the selected control actually supports.' },
           }, async (args, exec) => run(exec, async signal => gate.execute({
+            owner: ownerOf(exec),
             observationId: args.observationId,
             index: args.index,
             action: args.action,
