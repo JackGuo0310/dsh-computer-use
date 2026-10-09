@@ -2,12 +2,15 @@
 
 An opt-in Windows desktop computer-use provider for DeepSeek Harness. The three tools
 (`safe_win_inspect`, `safe_win_observe`, `safe_win_act`) are gated on a configured executable
-allowlist, a fresh observation, and one-time user approval. No stage of this project has been
-verified against a live desktop.
+allowlist, a fresh observation, and one-time user approval.
+
+**Nothing here has delivered a real UI action yet.** Read-only inspection and observation have
+run against a live Notepad window; `safe_win_act` has only been exercised against stubs and a
+recorded helper, never against a real control.
 
 ## Scope and safety
 
-- No desktop input, screenshots, or window inspection during development on a user's live desktop. Verify UI automation only in an isolated fixture or VM with explicit consent.
+- No desktop input, screenshots, or window inspection during development on a user's live desktop without explicit consent for that specific run. Verify UI automation only in an isolated fixture or VM.
 - A configured executable allowlist is mandatory. The implementation must bind each action to a fresh observation of a selected window and re-check its identity immediately before input.
 - Programmatic UI Automation is preferred over foreground pointer/keyboard input. Foreground input can move the user's pointer and focus and cannot be confined by a helper process.
 - Disallow terminals, login/password flows, security settings, and DSH itself. Ask for an explicit one-time user decision before a concrete sensitive or irreversible action; model-authored risk labels are not authority.
@@ -20,10 +23,10 @@ verified against a live desktop.
 3. Plugin provider integration, approval, cancellation, and disposal tests.
 4. Packaging, configuration, isolated acceptance, and security review.
 
-Milestones 1–3 have local commits, and packaging is verified by
-`npm run verify:package`. No UIA behavior has been observed: the one live run reached a
-read-only observation of an empty Notepad window, which legitimately contained no actionable
-control.
+Milestones 1–3 have local commits. Packaging, configuration validation, approval
+failure, and the security review of milestone 4 are done and covered by tests. The remaining
+milestone-4 item is the live acceptance run: `safe_win_act` has never delivered an action to a
+real control.
 
 ## Build and install
 

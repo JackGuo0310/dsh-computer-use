@@ -39,6 +39,18 @@ that turns out to be a login or a payment prompt — rather than attempting to c
 Control labels remain untrusted input: a sensitive label is withheld from the model before it can
 reason about it as a target.
 
+## Verification status
+
+Proven with evidence: protocol framing and limits; loader composition with the real tools,
+systemPrompt and approval services; config validation reaching the loader; packaging through a
+real install; approval refusal, missing approver, cancellation and helper-crash paths failing
+closed; disposal draining before the provider slot is released; read-only inspect and observe
+against a live Notepad window.
+
+Not proven: any delivery of a real action to a real control. The `invoke` path has only run
+against a stub helper and a recorded response. Treat `safe_win_act` as unvalidated until a live
+acceptance run completes against a disposable fixture window.
+
 ## Stage checks
 
 - Protocol validation, size/deadline limits, process startup/exit and concurrent-call teardown.
