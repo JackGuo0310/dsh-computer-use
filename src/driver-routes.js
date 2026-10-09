@@ -13,19 +13,28 @@ function json(payload, status = 200) {
 
 /**
  * Whether the request came from a browser page served by this Host.
- * The API fence already restricts `Host` to loopback or a configured trusted
- * name, so a loopback authority plus a same-site marker means the person
- * sitting at this machine; a browser cannot forge either header.
+ *
+ * The authority must be read from the `Host` header, never from `request.url`:
+ * the Connection bridge builds every routed request against a synthetic
+ * `http://dsh.internal` origin, so its hostname is always `dsh.internal` and
+ * says nothing about who asked. `Host` is what the browser actually dialled.
+ *
+ * DSH's own `api-request-trust` fence already restricts the Host to loopback or
+ * a configured trusted name and refuses `cross-site`, so requiring loopback plus
+ * a same-origin marker means the person sitting at this machine; a browser
+ * cannot forge either header.
  */
 function localBrowser(request) {
+  const authority = request.headers.get('host')
+  if (!authority) return false
   let hostname
   try {
-    hostname = new URL(request.url).hostname
+    hostname = new URL(`http://${authority}`).hostname
   } catch {
     return false
   }
-  return (hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname))
-    && request.headers.get('sec-fetch-site') === 'same-origin'
+  const loopback = hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname)
+  return loopback && request.headers.get('sec-fetch-site') === 'same-origin'
 }
 
 /**

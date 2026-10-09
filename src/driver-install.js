@@ -57,9 +57,25 @@ export async function getDriverStatus(options = {}) {
   return { installed: false, supported: true, version: DRIVER_VERSION, installedVersion: null, path: paths.executable }
 }
 
-function runPowerShell(script, args) {
+/**
+ * Run one PowerShell script with the two managed paths bound to environment
+ * variables.
+ *
+ * `powershell -Command <script> <arg>...` does NOT bind trailing arguments to a
+ * script's `param()` block: the paths were silently discarded and the script ran
+ * with empty parameters, which failed as an illegal path. Passing them through
+ * the environment keeps them out of the command text entirely, so a path holding
+ * spaces or a quote cannot alter the script, and the script is UTF-16LE-encoded
+ * so PowerShell cannot misread it under a non-UTF-8 console code page.
+ */
+function runPowerShell(script, environment) {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64')
   return new Promise((resolve, reject) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script, ...args], { windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout) => error ? reject(error) : resolve(stdout))
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+      env: { ...process.env, ...environment },
+    }, (error, stdout) => error ? reject(error) : resolve(stdout))
   })
 }
 
@@ -89,18 +105,23 @@ export async function installDriver({ fetchImpl = fetch, options = {} } = {}) {
 
     const extraction = join(scratch, 'extracted')
     await mkdir(extraction)
-    const script = `param([string]$Archive, [string]$Destination)
-Add-Type -AssemblyName System.IO.Compression
+    const script = `$Archive = $env:CUA_DRIVER_ARCHIVE
+$Destination = $env:CUA_DRIVER_DESTINATION
+if ([string]::IsNullOrEmpty($Archive) -or [string]::IsNullOrEmpty($Destination)) { throw 'Cua Driver extraction received no paths' }
+# ZipFile lives in System.IO.Compression.FileSystem. Loading only
+# System.IO.Compression leaves the type unresolved, which made every
+# installation fail with a TypeNotFound on [System.IO.Compression.ZipFile].
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($Archive)
 try {
   $entries = @($zip.Entries | Where-Object { $_.Name -ne '' })
-  if ($entries.Count -ne 2) { throw 'Unexpected Cua Driver archive layout' }
+  if ($entries.Count -lt ${BINARIES.length}) { throw 'Unexpected Cua Driver archive layout' }
   $total = [int64]0
   foreach ($entry in $entries) {
     $total += $entry.Length
     if ($total -gt ${MAX_EXTRACTED_BYTES}) { throw 'Cua Driver extracted size exceeds limit' }
   }
-  $required = @('cua-driver.exe', 'cua-driver-uia.exe')
+  $required = @(${BINARIES.map(name => `'${name}'`).join(',')})
   foreach ($entry in $entries) {
     if ($entry.FullName -ne $entry.Name -or $entry.Name -notmatch '^[a-zA-Z0-9_.-]+$' -or (($entry.ExternalAttributes -shr 16) -band 0xF000) -eq 0xA000) { throw 'Unsafe Cua Driver archive entry' }
   }
@@ -108,12 +129,17 @@ try {
     $matches = @($entries | Where-Object { $_.Name -eq $name })
     if ($matches.Count -ne 1) { throw "Cua Driver archive must contain $name exactly once at its root" }
   }
-  foreach ($entry in $entries) {
+  # The release ships the native SDK alongside the executables. Only the
+  # driver executables belong in the managed directory: the matching .node and
+  # .dll are already supplied by the @trycua/cua-driver npm dependency, and the
+  # remaining files are docs and a cursor theme this plugin never loads.
+  foreach ($name in $required) {
+    $entry = $entries | Where-Object { $_.Name -eq $name }
     $target = [System.IO.Path]::Combine($Destination, $entry.Name)
     [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $false)
   }
 } finally { $zip.Dispose() }`
-    await runPowerShell(script, [archivePath, extraction])
+    await runPowerShell(script, { CUA_DRIVER_ARCHIVE: archivePath, CUA_DRIVER_DESTINATION: extraction })
     for (const name of BINARIES) {
       const file = join(extraction, name)
       const binary = await readFile(file)
@@ -122,6 +148,9 @@ try {
     for (const name of await readdir(extraction)) {
       const info = await lstat(join(extraction, name))
       if (!info.isFile() || info.isSymbolicLink()) throw new Error('Cua Driver archive contains an unsupported file type')
+      // Only the driver executables are ever materialised; nothing else from the
+      // release may reach the managed directory.
+      if (!BINARIES.includes(name)) throw new Error(`Cua Driver archive installed an unexpected file ${name}`)
     }
     await writeFile(join(extraction, MARKER), `${paths.checksum}\n`, { flag: 'wx' })
     await mkdir(dirname(paths.directory), { recursive: true })
