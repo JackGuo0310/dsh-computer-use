@@ -36,6 +36,9 @@ async function main() {
     assert.deepEqual(manifest.dsh?.client, { platform: 'web' })
     assert.equal(manifest.exports['./client'], './client.js')
     assert.equal(manifest.dependencies['@trycua/cua-driver'], '0.28.0')
+    assert.equal(manifest.license, 'MIT')
+    assert.ok(existsSync(join(packageRoot, 'LICENSE')), 'LICENSE is missing from the tarball')
+    assert.match(await readFile(join(packageRoot, 'LICENSE'), 'utf8'), /^MIT License/)
     for (const [resource, expected] of Object.entries({
       './icon': './icon.svg',
       './locale/en.json': './locale/en.json',

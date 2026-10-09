@@ -48,3 +48,7 @@ git+ssh://git@github.com/JackGuo0310/dsh-computer-use.git#<TAG>
 ```
 
 安装需要可用的 SSH key。安装后在 Plugins 设置页打开 `dsh-computer-use-safe-win` 的配置页，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
+
+## 许可证
+
+[MIT](<LICENSE>) License，Copyright (c) 2026 Jack Guo。
