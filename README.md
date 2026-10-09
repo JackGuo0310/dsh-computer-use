@@ -37,19 +37,18 @@
 
 ## 尚未验证
 
-浏览器半的**真实渲染**未在本仓库验证：DSH 只在运行中的 Web GUI 里加载 `client.js`，本仓库无法启动替换服务器。`test/client-bundle.test.js` 在 `node:vm` 中加载真实产物并驱动组件，覆盖状态读取、安装确认、错误呈现与仅在配置页渲染，但 React 调和、slot 渲染器交互和实际点击未在此验证。安装后请在 Plugins 设置页确认 `dsh-computer-use-safe-win` 行存在、配置页出现两个按钮。
+浏览器半的**真实渲染**仍需在运行中的 DSH Web GUI 验证。`test/client-bundle.test.js` 在 `node:vm` 中加载真实产物，模拟 DSH Renderer 传入的 `t(key)`，覆盖文案、状态读取、安装确认、错误呈现与侧栏分区；React 调和、slot 渲染器交互和实际点击未在此验证。安装后请在设置侧栏「电脑操控」确认状态和两个按钮。
 
 实施按小阶段做本地 Git commit，不 push。保留既有用户改动，不通过重置工作树掩盖迁移。
 
 ## 安装（按 tag）
 
 ```sh
-# 在 DSH 中从私有仓库按 tag 安装 Host 插件
-# 插件管理器 → 添加插件 → dsh-computer-use-safe-win
-git+ssh://git@github.com/JackGuo0310/dsh-computer-use.git#<TAG>
+# 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.3
 ```
 
-安装需要可用的 SSH key。安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
+安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
 
 ### 0.1.0 → 0.1.1（重复核心模块）
 
@@ -97,6 +96,12 @@ rm -rf ~/.dsh/profiles/web/node_modules/@deepseek-ai/dsh-tools
 配置块改为设置侧栏的独立分区。
 
 迁移无需任何手动步骤，升级即可。
+
+### 0.1.2 → 0.1.3（设置面板文案）
+
+DSH Renderer 给 `settings.section` 的 `t` 是翻译函数 `t(key)`，不是字典对象。
+0.1.2 把它当 `t.title` 等属性读取，造成标题、按钮消失以及状态显示 `undefined`。
+0.1.3 改为调用翻译函数，并让回归测试模拟真实 Renderer 接口。
 
 ## 许可证
 

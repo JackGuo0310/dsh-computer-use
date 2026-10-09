@@ -78,7 +78,9 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {})
     cursor = 0
     effectCursor = 0
     effects.length = 0
-    const element = registered[0].Component({})
+    // The DSH renderer passes a translation function for options.locale.
+    const t = key => dictionaries.get('computerUseSafeWin')?.[active]?.[key] ?? key
+    const element = registered[0].Component({ close() {}, t })
     for (const effect of effects) effect()
     return element
   }
@@ -116,6 +118,8 @@ test('the shipped client half registers a Settings section and renders its drive
   assert.equal(page.spec.label(), '电脑操控')
   const text = textOf(await page.render())
   assert.match(text, /Cua Driver/)
+  assert.match(text, /先安装受管驱动/)
+  assert.doesNotMatch(text, /undefined/)
   assert.match(text, /测试驱动/)
   assert.match(text, /安装驱动/)
   assert.match(text, /未安装 · 目标版本: 0\.28\.0/)

@@ -22,7 +22,8 @@ async function main() {
   try {
     const tarballName = run(['pack', '--json'], workspace).trim()
     const tarballInfo = JSON.parse(tarballName)['dsh-computer-use-safe-win']
-    assert.equal(tarballInfo?.version, '0.1.0')
+    const sourceManifest = JSON.parse(await readFile(join(workspace, 'package.json'), 'utf8'))
+    assert.equal(tarballInfo?.version, sourceManifest.version)
     const tarball = join(workspace, tarballInfo.filename)
     const installDir = join(scratch, 'install')
     await mkdir(installDir)
