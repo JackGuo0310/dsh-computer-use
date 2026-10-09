@@ -11,9 +11,11 @@
 - 阶段 A 的版本/API 静态证据见 [STAGE-A.md](<STAGE-A.md>)。Cua SDK 已作为开发依赖安装以供静态测试；Driver 可执行文件未安装、worker 未运行，真实桌面、截图和输入均未触及。
 - 当前安全边界是**观察-only**：只注册 `safe_win_list_windows` 与 `safe_win_observe`，且不向模型暴露 Cua element token。动作、审批后执行与结果验证尚未接入；不把上游能力写成本插件已通过的能力。
 - DSH 输出目前走 JSON/text 适配，不代表图像附件已被模型渲染或测试。截图选项目前拒绝 true；请勿依赖截图输出。
-- SDK 的 npm 包不含 `cua-driver.exe`；私有 worker 需要另行安装固定版本的 Windows release。插件安装后在 Plugins 设置页出现 `dsh-computer-use-safe-win` 一行（同一个包名同时挂载 Host 与浏览器两半），Host 常驻在认证 API 通道上注册 `/api/computer-use-safe-win/status` 与 `/api/computer-use-safe-win/install` 两条路由，设置页提供「测试驱动」与「安装驱动」两个按钮。
+- SDK 的 npm 包不含 `cua-driver.exe`；私有 worker 需要另行安装固定版本的 Windows release。插件安装后在 **设置侧栏** 出现一个「电脑操控 / Computer Use」分区（同一个包名同时挂载 Host 与浏览器两半），Host 常驻在认证 API 通道上注册 `/api/computer-use-safe-win/status` 与 `/api/computer-use-safe-win/install` 两条路由，该分区提供「测试驱动」与「安装驱动」两个按钮。
   - 「测试驱动」只读受管目录，返回目标版本、已安装版本与平台支持情况；版本来自固定 checksum 的官方发行包，**未启动驱动验证**，因此界面显示「受管驱动已安装（未启动验证）」。
-  - 「安装驱动」需本机浏览器同源 POST：路由地址为回环、请求头标记 same-origin、且带显式确认头，远程 Host 或跨源请求返回 403，不会下载任何内容；同一时刻只允许一次安装。
+  - 「安装驱动」需本机浏览器同源 POST：`Host` 头必须是回环地址（`127.0.0.1`、`localhost` 或 `[::1]`）、请求头标记 same-origin、且带显式确认头；远程 Host、跨源或缺少 `Host` 的请求返回 403，不会下载任何内容；同一时刻只允许一次安装。
+    - 注意本地浏览器判定读的是 **`Host` 头**，不是 `request.url`：DSH 的 Connection 网桥把每条路由请求都构造在合成的 `http://dsh.internal` 源上，据此判定会永远失败。
+  - 安装包为官方 `cua-driver-rs-<版本>-windows-<架构>-binary.zip`，按固定 SHA-256 校验后只解出 `cua-driver.exe` 与 `cua-driver-uia.exe`；随包的原生 SDK、鼠标指针主题与头文件不会装入受管目录（`.node`/`.dll` 已由 `@trycua/cua-driver` 依赖提供）。
   - 安装完成后需要另行把 `config.enabled` 置为 true 并配置 `allowedApps`，观察工具才会注册；安装本身不启动 worker、不枚举桌面。默认 patch 即 `enabled: false`。
   - 插件名称、说明与图标来自 `locale/*.json` 与 `icon.svg`，因此列表里显示为本地化标题而不是包名。
 - 旧 Notepad 只读验收及 helper mock 测试属于旧后端，不是 Cua 验收结果。保留的未跟踪 `scripts/verify-live-inspect.mjs` 仍引用 helper，因用户要求不修改、不提交且不可运行。
@@ -47,9 +49,9 @@
 git+ssh://git@github.com/JackGuo0310/dsh-computer-use.git#<TAG>
 ```
 
-安装需要可用的 SSH key。安装后在 Plugins 设置页打开 `dsh-computer-use-safe-win` 的配置页，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
+安装需要可用的 SSH key。安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
 
-### 0.1.0 升级到 0.1.1（重要）
+### 0.1.0 → 0.1.1（重复核心模块）
 
 0.1.0 把宿主的 `@deepseek-ai/dsh-tools` 声明为普通 `dependencies`。安装它会让 DSH Profile 在
 `~/.dsh/profiles/<profile>/node_modules/` 下**再装一份 DSH 核心工具运行时**。宿主与副本各自
@@ -73,7 +75,28 @@ rm -rf ~/.dsh/profiles/web/node_modules/@deepseek-ai/dsh-tools
 只删 `dsh-tools` 这一个目录。`cosmokit`、`schemastery` 等可能仍被 `dsh-remote`、
 `dsh-better-sidebar` 共用，删掉它们反而会破坏其他插件。
 
+> 如果你现在用 Windows Junction 把 Profile 的 `dsh-tools` 指向全局 DSH 来临时绕过 0.1.0，
+> 装上 0.1.1 后可以撤掉：确认目录已不存在即说明回落正常。**在确认之前请保留该 Junction**，
+> 它是你当前 DSH 正常工作的前提。
+
 0.1.1 自身不再引入任何宿主包，工具定义由 `src/tool-def.js` 自行构造，只依赖注入的 `ctx` 服务。
+
+### 0.1.1 → 0.1.2（驱动装不上 + 界面位置）
+
+0.1.1 的「安装驱动」**对任何人都装不上**，有三个各自独立的阻塞点：
+
+1. 本机浏览器判定读了 `request.url` 的主机名，而 DSH 网桥把每条路由请求都构造在合成的
+   `http://dsh.internal` 上，于是回环判定永远不成立，一律 403。现改读 `Host` 头。
+2. 解压脚本只加载 `System.IO.Compression`，而 `[System.IO.Compression.ZipFile]` 实际定义在
+   `System.IO.Compression.FileSystem`，每次都 `TypeNotFound`。现已加载正确的程序集。
+3. `powershell -Command <script> <arg>...` **不会**把尾部参数绑定到脚本的 `param()` 块，
+   两个路径都被丢弃，解压因「路径非法」失败。现改为经环境变量传参并用 `-EncodedCommand` 传递脚本。
+
+同时把官方压缩包的布局检查从「必须恰好 2 个条目」放宽为「至少包含两个可执行文件」，
+并只解出驱动可执行文件（随包的 `.node`/`.dll` 已由 npm 依赖提供）。界面从 Plugins 页内的
+配置块改为设置侧栏的独立分区。
+
+迁移无需任何手动步骤，升级即可。
 
 ## 许可证
 

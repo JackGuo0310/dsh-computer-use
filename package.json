@@ -1,6 +1,6 @@
 {
   "name": "dsh-computer-use-safe-win",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "license": "MIT",
   "main": "./src/plugin.js",
@@ -40,6 +40,7 @@
     "test": "node --test test/*.test.js",
     "verify:package": "node scripts/verify-package.mjs",
     "verify:install": "node scripts/verify-install.mjs",
+    "verify:driver": "node scripts/verify-driver-install.mjs",
     "pack:check": "npm pack --dry-run"
   },
   "devDependencies": {

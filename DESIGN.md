@@ -27,6 +27,26 @@
 
 输出截图前，须核实 DSH 工具运行时（`@deepseek-ai/dsh-tools`）的附件/图片管线并通过真实 Loader 输出测试。当前 JSON/text 适配器不能证明图片能被渲染；插件暂时拒绝截图请求，不宣称可用。
 
+## 驱动安装的三个易错点（0.1.2 起修正）
+
+「安装驱动」曾经对**任何人**都不可能成功，三个阻塞点各自独立：
+
+1. **回环判定不能读 `request.url`。** DSH 的 Connection 网桥把每条路由请求构造在合成的
+   `http://dsh.internal` 源上（见 `dsh-client-connection` 的 `bridge()`），其 hostname 恒为
+   `dsh.internal`。真实 authority 在 `Host` 头里。必须读 `Host`。
+2. **`ZipFile` 在 `System.IO.Compression.FileSystem`。** 只 `Add-Type -AssemblyName
+   System.IO.Compression` 会让 `[System.IO.Compression.ZipFile]` 未解析（TypeNotFound）。
+3. **`powershell -Command <script> <arg>...` 不绑定 `param()`。** 尾部参数会被丢弃，脚本拿到
+   空路径。路径须经环境变量传递；脚本用 `-EncodedCommand`（UTF-16LE）传递，避免控制台代码页
+   破坏脚本内容，也避免带空格或引号的路径改变命令文本。
+
+官方压缩包还包含原生 SDK、鼠标指针主题与头文件共 6 个条目。布局检查只要求「至少含两个目标
+可执行文件」，且只解出可执行文件：`.node`/`.dll` 已由 `@trycua/cua-driver` npm 依赖提供，
+其余文件本插件从不加载，不应进入受管目录。SHA-256 与官方 `checksums.txt` 逐一核对一致。
+
+界面注册在 `settings.section`（设置侧栏独立分区），与其他设置功能一致，而非
+`plugins.bundle.config`（Plugins 页内的配置块）。
+
 ## 宿主依赖边界（0.1.1 起强制）
 
 插件**不得**在运行时 import 任何 `@deepseek-ai/*` 宿主包，也**不得**把宿主包写进
@@ -57,6 +77,8 @@ peerDependencies 就没事」并不成立：宿主包一旦以任何可安装形
 
 - `npm run pack:check`：tarball dry-run。
 - `npm run verify:package`：scratch install、检查 tarball 无 helper、确认 patch/`./client`/locale/icon 资源完整，并通过真实 Loader 验证 observation-only 工具注册与卸载。
+- 驱动安装的端到端路径（下载 → 校验 → 解压 → 落盘）已用真实官方压缩包在临时目录验证，
+  受管目录只出现 `cua-driver.exe`、`cua-driver-uia.exe` 与 `release.sha256`，二次安装为幂等。
 
 这些检查不启动 Cua worker，也不接触桌面。测试不能替代未验证的运行能力。
 
