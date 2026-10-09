@@ -38,6 +38,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "verify:package": "node scripts/verify-package.mjs",
+    "verify:install": "node scripts/verify-install.mjs",
     "pack:check": "npm pack --dry-run"
   },
   "devDependencies": {
