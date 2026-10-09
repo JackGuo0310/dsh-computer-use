@@ -1,0 +1,11 @@
+{
+  "name": "dsh-computer-use-safe-win",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.19" },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build:helper": "dotnet build native/ComputerUse.Helper.csproj -c Release"
+  }
+}

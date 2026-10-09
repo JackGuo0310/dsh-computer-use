@@ -1,2 +1,6 @@
 OtherRepo/
 OtherRepo/**
+**/bin/
+**/obj/
+node_modules/
+*.tgz

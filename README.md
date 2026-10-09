@@ -18,3 +18,5 @@ An opt-in Windows desktop computer-use provider for DeepSeek Harness. This proje
 4. Packaging, configuration, isolated acceptance, and security review.
 
 No stage will be pushed. Each verified stage receives its own local Git commit.
+
+**Test safety:** `npm test` selects only `test/*.test.js` in this repository. Never run recursive `node --test` from this workspace: its ignored `OtherRepo/` contains third-party tests that can operate the real desktop. On 2026-10-09 an unscoped test run was stopped after a user-reported desktop popup; do not repeat it.
