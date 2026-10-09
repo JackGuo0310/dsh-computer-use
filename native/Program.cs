@@ -85,6 +85,12 @@ internal static class Program
         return builder.ToString();
     }
 
+    private static void Diagnostics(string message)
+    {
+        if (Environment.GetEnvironmentVariable("COMPUTER_USE_HELPER_DIAG") is { } flag and not ("" or "0"))
+            Console.Error.WriteLine("[diag] " + message);
+    }
+
     private static void Write(string line)
     {
         Console.Out.WriteLine(line);
@@ -106,10 +112,13 @@ internal static class Program
         if (root is null) throw new InvalidDataException("UI Automation window unavailable");
         var elements = new List<object>();
         var targets = new List<ObservedElement>();
+        var visited = 0;
         foreach (var element in Walk(root, identity.pid))
         {
-            var fingerprint = Describe(element);
-            if (fingerprint is null || fingerprint.Patterns.Count == 0) continue;
+            visited++;
+            var fingerprint = Describe(element, out var reason);
+            if (fingerprint is null) { Diagnostics("skip " + reason); continue; }
+            if (fingerprint.Patterns.Count == 0) { Diagnostics("skip no-pattern " + fingerprint.Type + " '" + Bound(fingerprint.Name) + "'"); continue; }
             targets.Add(new ObservedElement(element, fingerprint));
             elements.Add(new
             {
@@ -123,6 +132,7 @@ internal static class Program
             if (elements.Count > Protocol.MaxResponseLength / 256) throw new InvalidDataException("observation exceeds protocol limits");
         }
         var observationId = Guid.NewGuid().ToString("N");
+        Diagnostics($"observed visited={visited} kept={targets.Count}");
         Snapshots[observationId] = new Snapshot(identity, targets, DateTime.UtcNow);
         return new { observationId, window = identity, elements };
     }
@@ -169,7 +179,7 @@ internal static class Program
         if (actual != snapshot.Window) throw new InvalidDataException("window changed");
         var entry = snapshot.Elements[index];
         if (!entry.Element.Current.IsEnabled || entry.Element.Current.IsOffscreen) throw new InvalidDataException("target is unavailable");
-        var current = Describe(entry.Element);
+        var current = Describe(entry.Element, out _);
         if (current is null || !current.Matches(entry.Fingerprint)) throw new InvalidDataException("target changed since observation");
         if (!DescendsFrom(entry.Element, (nint)snapshot.Window.hwnd)) throw new InvalidDataException("target no longer belongs to the observed window");
         if (action == "Invoke" && entry.Element.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke)) ((InvokePattern)invoke).Invoke();
@@ -203,20 +213,23 @@ internal static class Program
         return false;
     }
 
-    private static Fingerprint? Describe(AutomationElement element)
+    private static Fingerprint? Describe(AutomationElement element, out string reason)
     {
+        reason = "";
         try
         {
             var current = element.Current;
             var type = current.ControlType.ProgrammaticName.Replace("ControlType.", "", StringComparison.Ordinal);
-            if (!AllowedTypes.Contains(type) || current.IsPassword || !current.IsEnabled) return null;
+            if (!AllowedTypes.Contains(type)) { reason = $"type={type}"; return null; }
+            if (current.IsPassword) { reason = "password"; return null; }
+            if (!current.IsEnabled) { reason = "disabled"; return null; }
             var patterns = new List<string>();
             if (element.TryGetCurrentPattern(InvokePattern.Pattern, out _)) patterns.Add("Invoke");
             if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _)) patterns.Add("Select");
             if (element.TryGetCurrentPattern(TogglePattern.Pattern, out _)) patterns.Add("Toggle");
             return new Fingerprint(type, current.Name ?? "", current.AutomationId ?? "", patterns);
         }
-        catch (ElementNotAvailableException) { return null; }
+        catch (ElementNotAvailableException) { reason = "unavailable"; return null; }
     }
 
     private static string Bound(string value) => value.Length > 256 ? value[..256] : value;
