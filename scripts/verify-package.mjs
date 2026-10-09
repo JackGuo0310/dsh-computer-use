@@ -47,9 +47,16 @@ async function main() {
       assert.equal(manifest.exports[resource], expected)
       assert.ok(existsSync(join(packageRoot, expected)), `${expected} is missing from the tarball`)
     }
-    const english = JSON.parse(await readFile(join(packageRoot, 'locale/en.json'), 'utf8'))
-    assert.equal(typeof english.meta?.title?.en, 'string')
-    assert.equal(typeof english.meta?.description?.zh, 'string', 'the Chinese dictionary keeps an English fallback')
+    // Host reads each language file separately and merges them; every field in a
+    // file must therefore be a plain non-empty string, never a language map.
+    for (const language of ['en', 'zh']) {
+      const dictionary = JSON.parse(await readFile(join(packageRoot, `locale/${language}.json`), 'utf8'))
+      for (const field of ['title', 'description']) {
+        const value = dictionary.meta?.[field]
+        assert.equal(typeof value, 'string', `locale/${language}.json meta.${field} must be a string`)
+        assert.notEqual(value.trim(), '', `locale/${language}.json meta.${field} must not be empty`)
+      }
+    }
     for (const file of ['src/helper-client.js', 'native/ComputerUse.Helper.dll', 'native/ComputerUse.Helper.exe', 'scripts/acceptance.mjs']) {
       assert.equal(existsSync(join(packageRoot, file)), false, `legacy file ${file} leaked into the tarball`)
     }

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
-import { createRequire } from 'node:module'
 import { execFileSync } from 'node:child_process'
 import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -16,17 +16,26 @@ const npmCli = process.env.npm_execpath
 const run = (args, cwd) => execFileSync(process.execPath, [npmCli, ...args], { cwd, encoding: 'utf8' })
 const workspace = fileURLToPath(new URL('..', import.meta.url))
 
+/** The Host package that owns plugin display metadata; resolved from the installed DSH. */
+async function appBoot() {
+  const dsh = join(homedir(), 'AppData/Roaming/npm/node_modules/@deepseek-ai/dsh')
+  const manifest = createRequire(join(workspace, 'noop.js')).resolve('@deepseek-ai/dsh-app-boot/package.json', { paths: [dsh] })
+  return pathToFileURL(join(dirname(manifest), 'lib', 'index.js')).href
+}
+const APP_BOOT = await appBoot()
+
 /** Install the packed package the way a person installs it, then load it through the real Loader. */
 async function main() {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-verify-install-'))
   try {
     const tarballInfo = JSON.parse(run(['pack', '--json'], workspace).trim())['dsh-computer-use-safe-win']
     const tarball = join(workspace, tarballInfo.filename)
-    const installDir = join(scratch, 'install')
-    await mkdir(installDir)
-    await writeFile(join(installDir, 'package.json'), JSON.stringify({ private: true }))
-    run(['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], installDir)
-    const require = createRequire(join(installDir, 'noop.js'))
+    await writeFile(join(scratch, 'package.json'), JSON.stringify({ private: true }))
+    run(['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], scratch)
+    // npm installs into <scratch>/node_modules, so that directory is the
+    // resolution base a plugin row would be read from.
+    const installDir = scratch
+    const require = createRequire(join(scratch, 'noop.js'))
     const entry = require.resolve('dsh-computer-use-safe-win/package.json')
     const packageRoot = dirname(entry)
     const manifest = JSON.parse(await readFile(entry, 'utf8'))
@@ -77,6 +86,24 @@ async function main() {
     const clientHalf = await readFile(join(packageRoot, manifest.exports['./client']), 'utf8')
     assert.match(clientHalf, /^window\.__ModuleLoader__\.load\(\{/)
     assert.deepEqual([...clientHalf.matchAll(/require\('([^']+)'\)/g)].map(match => match[1]), ['react'])
+
+    // The Plugins page reads display metadata through the Host's own reader; a
+    // rejected locale file surfaces there as a row-level error. It is run in a
+    // child process so resolution starts from the install directory: this
+    // script's own imports would otherwise make the workspace source win.
+    const probe = `
+      import { readPluginMeta } from ${JSON.stringify(APP_BOOT)}
+      import { pathToFileURL } from 'node:url'
+      process.stdout.write(JSON.stringify(readPluginMeta('dsh-computer-use-safe-win', pathToFileURL(process.argv[1]).href)) ?? 'null')
+    `
+    const probeFile = join(scratch, 'probe.mjs')
+    await writeFile(probeFile, probe)
+    const meta = JSON.parse(execFileSync(process.execPath, [probeFile, `${installDir}/`], { encoding: 'utf8' }))
+    assert.equal(meta?.error, undefined, `plugin metadata error: ${String(meta?.error)}`)
+    assert.equal(typeof meta?.icon, 'string', 'the icon must load')
+    assert.equal(meta?.title?.zh, 'Windows 电脑操控（只读）')
+    assert.equal(meta?.title?.en, 'Windows Computer Use (read-only)')
+    assert.equal(typeof meta?.description?.en, 'string')
     console.log('tagged package installs, loads through the Loader, and reports driver status')
   } finally {
     await rm(scratch, { recursive: true, force: true })
