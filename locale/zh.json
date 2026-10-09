@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": {
+      "en": "Windows Computer Use (read-only)",
+      "zh": "Windows 电脑操控（只读）"
+    },
+    "description": {
+      "en": "Inspect allowlisted Windows windows through a managed Cua Driver. Install the driver and test its status from this page.",
+      "zh": "通过受管 Cua Driver 观察白名单内的 Windows 窗口。可在本页安装驱动并测试安装状态。"
+    }
+  }
+}

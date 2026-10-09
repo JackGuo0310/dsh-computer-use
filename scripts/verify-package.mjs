@@ -36,6 +36,17 @@ async function main() {
     assert.deepEqual(manifest.dsh?.client, { platform: 'web' })
     assert.equal(manifest.exports['./client'], './client.js')
     assert.equal(manifest.dependencies['@trycua/cua-driver'], '0.28.0')
+    for (const [resource, expected] of Object.entries({
+      './icon': './icon.svg',
+      './locale/en.json': './locale/en.json',
+      './locale/zh.json': './locale/zh.json',
+    })) {
+      assert.equal(manifest.exports[resource], expected)
+      assert.ok(existsSync(join(packageRoot, expected)), `${expected} is missing from the tarball`)
+    }
+    const english = JSON.parse(await readFile(join(packageRoot, 'locale/en.json'), 'utf8'))
+    assert.equal(typeof english.meta?.title?.en, 'string')
+    assert.equal(typeof english.meta?.description?.zh, 'string', 'the Chinese dictionary keeps an English fallback')
     for (const file of ['src/helper-client.js', 'native/ComputerUse.Helper.dll', 'native/ComputerUse.Helper.exe', 'scripts/acceptance.mjs']) {
       assert.equal(existsSync(join(packageRoot, file)), false, `legacy file ${file} leaked into the tarball`)
     }
@@ -44,8 +55,8 @@ async function main() {
     console.log('tarball pins Cua and excludes the legacy helper')
 
     const patch = await readFile(join(packageRoot, 'cordis.patch.yml'), 'utf8')
-    assert.match(patch, /name: dsh-computer-use-safe-win/)
-    assert.match(patch, /name: dsh-computer-use-safe-win\/client/)
+    assert.match(patch, /name: dsh-computer-use-safe-win\n/)
+    assert.doesNotMatch(patch, /dsh-computer-use-safe-win\/client/, 'one package name must mount both halves')
     assert.match(patch, /allowedApps: \[\]/)
     assert.match(patch, /enabled: false/)
     const clientHalf = await readFile(join(packageRoot, 'client.js'), 'utf8')

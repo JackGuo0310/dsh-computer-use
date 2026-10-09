@@ -4,7 +4,7 @@ import { registerDriverRoutes } from './driver-routes.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'computer-use-safe-win'
-export const inject = ['connection', 'webServer']
+export const inject = ['connection']
 export const Config = {
   '~standard': {
     version: 1,

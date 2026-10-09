@@ -3,6 +3,8 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
+    const STATUS = '/api/computer-use-safe-win/status'
+    const INSTALL = '/api/computer-use-safe-win/install'
     const TEXT = {
       zh: { title: 'Cua Driver · 只读', intro: '先安装受管驱动，再测试安装状态。安装不会开启桌面观察；观察功能须另行配置白名单并启用。', test: '测试驱动', install: '安装驱动', confirm: '从 trycua 官方发行版下载并安装固定版本驱动？', busy: '正在安装…', absent: '未安装', ready: '受管驱动已安装（未启动验证）', unsupported: '当前系统不支持', version: '受管版本', expected: '目标版本', error: '请求失败', remote: '仅本机浏览器允许安装；远程连接请在主机本机打开设置页。' },
       en: { title: 'Cua Driver · Read-only', intro: 'Install the managed driver and test its status. Installation never enables desktop observation; configure an allowlist and enable observation separately.', test: 'Test driver', install: 'Install driver', confirm: 'Download and install the pinned driver from the official trycua release?', busy: 'Installing…', absent: 'Not installed', ready: 'Managed driver installed (runtime not tested)', unsupported: 'Unsupported system', version: 'Managed version', expected: 'Target version', error: 'Request failed', remote: 'Installation is restricted to the local browser; open settings on the Host.' },
@@ -19,7 +21,7 @@ window.__ModuleLoader__.load({
         return value
       }
       async function test() {
-        try { setError(''); setStatus(await request('/computer-use-safe-win/status')) }
+        try { setError(''); setStatus(await request(STATUS)) }
         catch (cause) { setError(String(cause.message || cause)) }
       }
       React.useEffect(() => { if (props.view === 'page') void test() }, [props.view])
@@ -28,7 +30,7 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError('')
         try {
-          await request('/computer-use-safe-win/install', { method: 'POST', headers: { 'content-type': 'application/json', 'x-computer-use-confirm': 'install-pinned-driver' }, body: '{}' })
+          await request(INSTALL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-computer-use-confirm': 'install-pinned-driver' }, body: '{}' })
           await test()
         } catch (cause) { setError(String(cause.message || cause)) }
         finally { setBusy(false) }

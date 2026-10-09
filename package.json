@@ -6,6 +6,8 @@
   "files": [
     "src",
     "client.js",
+    "icon.svg",
+    "locale",
     "cordis.patch.yml",
     "README.md",
     "DESIGN.md"
@@ -13,6 +15,9 @@
   "exports": {
     ".": "./src/plugin.js",
     "./client": "./client.js",
+    "./icon": "./icon.svg",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
     "./package.json": "./package.json"
   },
   "dsh": {

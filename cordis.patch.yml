@@ -1,4 +1,6 @@
-# The management row stays available after install; desktop observation is opt-in.
+# One row per package: the node half owns the driver routes and the opt-in
+# provider, and the same package name mounts its browser half in the module
+# table. Desktop observation stays off until config enables it.
 
 - insert:
     - id: computer-use-safe-win
@@ -6,5 +8,3 @@
       config:
         allowedApps: []
         enabled: false
-    - id: computer-use-safe-win-client
-      name: dsh-computer-use-safe-win/client

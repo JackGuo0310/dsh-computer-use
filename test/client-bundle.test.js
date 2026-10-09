@@ -102,13 +102,14 @@ test('the shipped client half waits for the settings slot and renders its own dr
   assert.equal([...page.namespace.inject].join(), 'slots')
   assert.equal(page.registered.length, 1)
   assert.equal(page.spec.name, 'plugins.bundle.config')
+  // The Plugins page renders this slot with the installed package name as its entry key.
   assert.equal(page.spec.key, 'dsh-computer-use-safe-win')
   const text = textOf(await page.render('page'))
   assert.match(text, /Cua Driver/)
   assert.match(text, /测试驱动/)
   assert.match(text, /安装驱动/)
   assert.match(text, /未安装 · 目标版本: 0\.28\.0/)
-  assert.deepEqual(page.seen.map(call => call.path), ['/computer-use-safe-win/status'])
+  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
 })
 
 test('opening the settings page tests status once and reports the pinned target version', async () => {
@@ -118,7 +119,7 @@ test('opening the settings page tests status once and reports the pinned target 
   assert.match(text, /Install driver/)
   assert.match(text, /Not installed/)
   assert.match(text, /0\.28\.0/)
-  assert.deepEqual(page.seen.map(call => call.path), ['/computer-use-safe-win/status'])
+  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
 })
 
 test('nothing renders or calls the Host outside its own settings page', async () => {
