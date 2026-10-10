@@ -124,12 +124,14 @@ SDK 提供 `SetAgentCursorEnabled` / `SetAgentCursorMotion` / `SetAgentCursorThe
 
 ## 宿主依赖边界（0.1.1 起强制）
 
-插件**不得**在运行时 import 任何 `@deepseek-ai/*` 宿主包，也**不得**把宿主包写进
+插件**不得**在运行时 import 任何 `@deepseek-ai/dsh-*` 宿主**运行时**包，也**不得**把这类包写进
 `dependencies` / `optionalDependencies`。违反会引入 DSH 核心模块的第二份物理副本：
 Profile 会多装一个 `@deepseek-ai/dsh-tools`，宿主与副本各自 `import` 的
 `TOOL_RUNTIME_SCHEDULER` 是两个不同的 Symbol，`dsh-agent-loop` 读取
 `ctx.tools[TOOL_RUNTIME_SCHEDULER]` 得到 `undefined`，抛出
 `Cannot read properties of undefined (reading 'prepare')`。
+
+**`@deepseek-ai/schemastery` 是例外且必须声明为依赖**（0.1.5 补上）。它是宿主自身也当作普通运行时依赖的纯校验库，不含任何 DSH 运行时 Symbol；不声明它会让安装后的插件无法解析该包而完全不可用。`test/host-dependency-isolation.test.js` 的三条隔离测试继续通过。
 
 两条约束缺一不可：
 

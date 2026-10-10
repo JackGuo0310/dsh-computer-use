@@ -50,7 +50,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.4
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.5
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
@@ -133,6 +133,20 @@ DSH Renderer 给 `settings.section` 的 `t` 是翻译函数 `t(key)`，不是字
 - **文字输入需要窗口有焦点**。实测后台输入驱动自述成功但字符数不变；前台则正常。点击不受此限制，可纯后台执行。
 - 自动化输入会在屏幕上显示一个蓝色 agent cursor（驱动的 UIA 通路副产品），这是可见且被接受的副作用。
 - 动作工具仍未注册：需要一次性审批与审批后重验链路，且取消/失败路径尚未实测。
+
+### 0.1.4 → 0.1.5（v0.1.4 装不起来的热修复）
+
+v0.1.4 发布后在真实 DSH 里启动即挂起、设置面板空白。根因有两个，都是发布前检查没覆盖到：
+
+1. **`configForms` 被错误地声明为宿主依赖**。它是 `@deepseek-ai/dsh-ui-settings` 提供的**浏览器端**服务，宿主进程里永远不存在，插件因此一直 `pending (waiting for service: configForms)`，路由不注册、工具不挂载。
+2. **`computerUse` 缺失**。v0.1.3 在 `enabled: false` 时会提前返回，因此从没读过这个服务；改成「禁用时也挂载 provider」以支持配置实时生效后，它必须出现在注入列表里。
+
+同时修复两个只有安装后才会暴露的问题：
+
+3. **`@deepseek-ai/schemastery` 没有声明为依赖**。`src/settings-validation.js` 需要它，但安装后的插件无法解析（`Cannot find package`）。它是宿主自身也当作普通运行时依赖的校验库，不含 DSH 运行时 Symbol，因此不违反「不引入宿主运行时包」的约束（三条隔离测试仍通过）。
+4. **`verify:install` 的清理会掩盖真实失败**。原生 addon 载入后 Windows 拒绝 unlink，`finally` 里的 `rm` 抛错会顶替掉真正的错误信息——正是它掩盖了上面第 3 条。
+
+**升级**：把插件地址改成 `#v0.1.5`，然后重新启用观察并保存一次白名单。
 
 ## 许可证
 

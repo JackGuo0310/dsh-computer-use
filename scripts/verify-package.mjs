@@ -86,8 +86,8 @@ async function main() {
         ...plugin,
         inject: ['computerUse', 'tools', 'systemPrompt'],
         apply: async ctx => { await plugin.startSafeWinProvider(ctx, {
-          allowedApps: new Set(['notepad.exe']),
-          startRuntime: async () => ({ listTargets: async () => [], observe: async () => ({}), close: async () => {} }),
+          readSettings: () => ({ enabled: true, allowedApps: ['notepad.exe'] }),
+          startRuntime: async () => ({ listTargets: async () => [], observe: async () => ({}), listApplications: async () => [], close: async () => {} }),
         }) },
       }],
     ])

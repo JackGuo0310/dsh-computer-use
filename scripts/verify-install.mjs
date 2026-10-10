@@ -69,11 +69,22 @@ async function main() {
       return modules.get(specifier)
     } }
     await ctx.provide('connection', { fetch: { register(route) { routes.set(route.path, route); return () => routes.delete(route.path) } } })
+    // The provider takes the exclusive computer-use registration even while
+    // observation is disabled, so the Host service must exist for it to mount.
+    const registrations = []
+    await ctx.provide('computerUse', { register(name) { registrations.push(name); return async () => { registrations.pop() } } })
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
     await ctx.loader.await()
     for (const fiber of ctx.loader.entries()) await fiber.fiber?.await()
-    assert.deepEqual([...routes.keys()], ['/api/computer-use-safe-win/status', '/api/computer-use-safe-win/install'])
-    assert.deepEqual(ctx.tools.schemas(), [], 'an installed but unconfigured plugin exposes no tool')
+    const inactive = [...ctx.loader.entries()].filter(entry => entry.fiber?.state === 5 || entry.fiber?.state === 6)
+    assert.deepEqual(inactive.map(entry => entry.options.id), [], `entries failed to activate: ${inactive.map(entry => entry.options.id).join(', ')}`)
+    assert.deepEqual([...routes.keys()].sort(), ['/api/computer-use-safe-win/install', '/api/computer-use-safe-win/running-apps', '/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
+    // The provider mounts while observation is disabled so that enabling takes effect
+    // on the next call; the tools refuse until the live settings enable it.
+    assert.deepEqual(ctx.tools.schemas().map(schema => schema.name).sort(), ['safe_win_list_windows', 'safe_win_observe'])
+    assert.deepEqual(registrations, ['safe-win'], 'the provider registers even while observation is disabled, so enabling needs no restart')
+    const refused = await ctx.tools.execute({ name: 'safe_win_list_windows', arguments: {}, callId: 'call-1', signal: new AbortController().signal })
+    assert.match(JSON.stringify(refused), /observation is disabled/)
     const status = await routes.get('/api/computer-use-safe-win/status').fetch(new Request('http://127.0.0.1:3080/api/computer-use-safe-win/status'))
     const report = await status.json()
     assert.equal(typeof report.supported, 'boolean')
@@ -106,7 +117,10 @@ async function main() {
     assert.equal(typeof meta?.description?.en, 'string')
     console.log('tagged package installs, loads through the Loader, and reports driver status')
   } finally {
-    await rm(scratch, { recursive: true, force: true })
+    // The Cua native addon stays mapped into this process once the installed
+    // plugin imports it, and Windows refuses to unlink a mapped file. Cleanup is
+    // best-effort so it can neither mask a real failure nor fail the run.
+    await rm(scratch, { recursive: true, force: true, maxRetries: 2 }).catch(() => {})
   }
 }
 

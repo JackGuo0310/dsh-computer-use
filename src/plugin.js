@@ -5,7 +5,12 @@ import { projectionApplies, projectScreenshots, storeScreenshots } from './scree
 import { SettingsSchema, validateSettingsConfig, validateSettingsDraft } from './settings-validation.js'
 
 export const name = 'computer-use-safe-win'
-export const inject = ['connection', 'configForms']
+// `computerUse` is the shared exclusive registration the provider takes; it is
+// injected because the provider now mounts even while observation is disabled,
+// so that enabling it takes effect on the next call instead of on a restart.
+// `configForms` must stay out of this list: it is a browser service owned by
+// `@deepseek-ai/dsh-ui-settings` and can never exist in the Host process.
+export const inject = ['connection', 'computerUse']
 export const Config = SettingsSchema
 export const validateConfig = validateSettingsConfig
 
