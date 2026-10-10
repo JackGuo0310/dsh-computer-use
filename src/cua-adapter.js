@@ -194,9 +194,15 @@ export class CuaRuntime {
    * Delivery is hard-coded to `InputDeliveryMode.Background` and the position to an
    * element token: this method accepts no foreground mode and no raw coordinates,
    * so a caller cannot silently switch coordinate spaces or raise a window. The
-   * window identity is re-read immediately before the click. The driver's own
-   * `ActionResult` is projected and returned; the caller decides what an
-   * unconfirmed effect means, and must never retry by escalating.
+   * window identity is re-read immediately before the click.
+   *
+   * Verified live against 0.28.0 on Windows 11: a background element click on a
+   * Notepad toolbar toggle reported `route: accessibility`, `delivery.mode:
+   * background`, and `effect: unverifiable`, while the window itself did change
+   * state. The driver's own report is therefore not evidence that an action took
+   * effect, and `unverifiable` does not mean the click failed. Confirm the outcome
+   * from a fresh snapshot of the same window; never retry by escalating, and never
+   * treat an unconfirmed result as permission to send the click again.
    *
    * @param target - Frozen window identity from a fresh listing.
    * @param elementToken - Token from a snapshot of that same window.

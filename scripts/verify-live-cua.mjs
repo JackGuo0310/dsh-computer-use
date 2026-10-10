@@ -66,18 +66,30 @@ async function main() {
       return 0
     }
 
+    const index = process.env.DSH_CUA_LIVE_CLICK_INDEX === undefined ? undefined : Number(process.env.DSH_CUA_LIVE_CLICK_INDEX)
     const role = process.env.DSH_CUA_LIVE_CLICK_ROLE
-    const element = role ? shot.elements.find(item => item.role === role) : shot.elements[0]
+    const element = index === undefined
+      ? (role ? shot.elements.find(item => item.role === role) : shot.elements[0])
+      : shot.elements.find(item => item.index === index)
     if (!element) {
-      console.error(`no snapshot element${role ? ` with role ${role}` : ''} to click`)
+      console.error(`no snapshot element${index === undefined ? role ? ` with role ${role}` : '' : ` at index ${index}`} to click`)
       return 3
     }
     report('clicking element', elementSummary(element))
     const result = await runtime.click(target, element.token)
     report('action result', result)
 
+    // A fresh snapshot is the only evidence that the click landed: the driver
+    // reports what it believes it did, the window reports what actually changed.
     const after = await runtime.observe(target, { includeScreenshot: false })
-    report('post-action snapshot', { snapshotId: after.snapshotId, elementCount: after.elements.length, treeChanged: after.treeMarkdown !== text.treeMarkdown })
+    const landed = after.elements.find(item => item.index === element.index)
+    report('clicked element after', landed ? elementSummary({ ...landed, selected: landed.selected, enabled: landed.enabled }) : 'absent from the new snapshot')
+    report('post-action snapshot', {
+      snapshotId: after.snapshotId,
+      elementCount: after.elements.length,
+      treeChanged: after.treeMarkdown !== text.treeMarkdown,
+      labelChanged: JSON.stringify(after.elements.map(e => [e.index, e.label, e.selected])) !== JSON.stringify(text.elements.map(e => [e.index, e.label, e.selected])),
+    })
     return 0
   } finally {
     await runtime.close()
