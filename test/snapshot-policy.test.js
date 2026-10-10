@@ -35,11 +35,21 @@ test('refuses snapshots for another window, degraded snapshots, and invalid elem
   assert.throws(() => projectSnapshot(raw({ elements: [{ elementIndex: 1.5 }] }), target), /invalid element index/)
 })
 
-test('refuses silently incomplete element sets but reports explicit truncation', () => {
-  assert.throws(() => projectSnapshot(raw({ elementsComplete: false }), target), /silently returned an incomplete element set/)
-  const truncated = projectSnapshot(raw({ elementsComplete: false, truncated: true, truncationReason: 'element limit' }), target)
+test('refuses a silent element shortfall but reports explicit truncation', () => {
+  assert.throws(() => projectSnapshot(raw({ returnedElementCount: 3n, totalElementCount: 9n }), target), /without reporting truncation/)
+  const truncated = projectSnapshot(raw({ returnedElementCount: 3n, totalElementCount: 9n, truncated: true, truncationReason: 'element limit' }), target)
   assert.equal(truncated.truncated, true)
-  assert.equal(projectSnapshot(raw({ elementsComplete: true }), target).truncated, false)
+  assert.equal(truncated.truncatedReason, 'element limit')
+  assert.equal(truncated.totalElementCount, 9)
+})
+
+test('the driver completeness flag is passed through, not reinterpreted as loss', () => {
+  // Observed live: Notepad reports elementsComplete false while its total,
+  // returned, and reported counts all agree, so the flag is not a loss signal.
+  const snapshot = projectSnapshot(raw({ elementsComplete: false, elementCount: 30n, totalElementCount: 30n, returnedElementCount: 30n }), target)
+  assert.equal(snapshot.elementsComplete, false)
+  assert.equal(snapshot.truncated, false)
+  assert.equal(projectSnapshot(raw({ elementsComplete: true }), target).elementsComplete, true)
 })
 
 test('refuses a stale screenshot frame only when a screenshot was requested', () => {

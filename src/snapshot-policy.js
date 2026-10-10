@@ -21,13 +21,23 @@ function boundedText(value, limit) {
   return typeof value === 'string' ? value.slice(0, limit) : ''
 }
 
+/** Read a driver count that arrives as a bigint, a number, or not at all. */
+function count(value) {
+  if (typeof value === 'bigint') return Number(value)
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
+}
+
 /**
  * Validate and bound one raw `getWindowState` result for a selected target.
  *
  * Refuses a snapshot that describes another window, that the driver marks
- * degraded, that it silently returns incomplete, or whose frame it marks stale
- * for a requested screenshot. Explicit truncation stays reportable through
- * `truncated` rather than failing the observation.
+ * degraded, that silently returned fewer elements than the window contains, or
+ * whose frame it marks stale for a requested screenshot. Explicit truncation
+ * stays reportable through `truncated` rather than failing the observation, and
+ * the driver's own completeness fields are passed through instead of being
+ * reinterpreted: on Windows 0.28.0 the driver reports `elementsComplete: false`
+ * for a Notepad window whose total, returned, and reported element counts all
+ * agree, so that flag alone is not evidence that elements were dropped.
  *
  * @param state - Raw `WindowStateOutput` from the driver.
  * @param target - Frozen window identity the snapshot must describe.
@@ -36,9 +46,11 @@ function boundedText(value, limit) {
  */
 export function projectSnapshot(state, target, { includeScreenshot = false } = {}) {
   if (state.pid !== target.pid || state.windowId !== target.windowId || state.degraded) throw new Error('Cua returned a degraded window snapshot for an unexpected window')
-  // Explicit truncation is reported separately as `truncated`; only silent
-  // incompleteness must fail, or a partial element set would read as complete.
-  if (state.elementsComplete === false && state.truncated !== true) throw new Error('Cua silently returned an incomplete element set for the window snapshot')
+  const total = count(state.totalElementCount)
+  const returned = count(state.returnedElementCount)
+  // Explicit truncation is reported separately as `truncated`; only a silent
+  // shortfall must fail, or a partial element set would read as complete.
+  if (total !== undefined && returned !== undefined && returned < total && state.truncated !== true) throw new Error('Cua returned fewer elements than the window contains, without reporting truncation')
   if (includeScreenshot && state.screenshotFrameValid === false) throw new Error('Cua reported a stale screenshot frame for the window snapshot')
   const elements = Array.isArray(state.elements) ? state.elements : []
   if (elements.length > MAX_ELEMENTS) throw new Error('Cua snapshot exceeds the element limit')
@@ -63,12 +75,16 @@ export function projectSnapshot(state, target, { includeScreenshot = false } = {
     return Object.freeze({ mimeType: image.mimeType, data })
   })
   if (includeScreenshot && (!images.length || images.some(image => !SUPPORTED_IMAGE.test(image.mimeType)))) throw new Error('Cua did not return a supported target-window screenshot')
+  // Tool output must stay lossless JSON, so absent optional fields are omitted
+  // rather than carried as `undefined`, which the registry refuses.
   return Object.freeze({
-    snapshotId: state.snapshotId,
+    snapshotId: boundedText(state.snapshotId ?? '', 128),
     treeMarkdown: boundedText(state.treeMarkdown ?? '', MAX_TEXT),
     elements: safeElements,
     truncated: state.truncated === true,
-    degraded: state.degraded === true,
+    elementsComplete: state.elementsComplete === true,
+    ...state.truncated === true ? { truncatedReason: boundedText(state.truncationReason ?? '', 200) } : {},
+    ...total === undefined ? {} : { totalElementCount: total },
     images,
   })
 }

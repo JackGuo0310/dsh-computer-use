@@ -27,6 +27,19 @@ function tool(toolName, description, parameters, execute) {
   return defineTool({ name: toolName, description, parameters, output: jsonOutput, execute })
 }
 
+/**
+ * Drop absent optional fields from a canonical tool value.
+ *
+ * The registry refuses any output that is not lossless JSON, and `undefined` is
+ * not: a runtime that omits one of these fields must not fail the whole call.
+ *
+ * @param value - Candidate canonical value.
+ * @returns The same entries without `undefined` values.
+ */
+function defined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined))
+}
+
 export async function startSafeWinProvider(ctx, { allowedApps, startRuntime }) {
   const lifetime = new AbortController()
   const pending = new Set()
@@ -71,14 +84,17 @@ export async function startSafeWinProvider(ctx, { allowedApps, startRuntime }) {
             if (!target) throw new Error('window is no longer an eligible listed target')
             const identity = validateWindow(target, allowedApps)
             const snapshot = await runtime.observe(identity, { includeScreenshot: args.screenshot === true, signal })
-            return {
+            return defined({
               window: { ...snapshot.target, windowId: snapshot.target.windowId.toString() },
               snapshotId: snapshot.snapshotId,
               treeMarkdown: snapshot.treeMarkdown,
               elements: snapshot.elements.map(({ index, role, label, value, enabled, selected, actions }) => ({ index, role, label, value, enabled, selected, actions })),
               truncated: snapshot.truncated,
+              elementsComplete: snapshot.elementsComplete,
+              truncatedReason: snapshot.truncatedReason,
+              totalElementCount: snapshot.totalElementCount,
               screenshot: snapshot.images,
-            }
+            })
           })))
           yield inner.systemPrompt.section({ name: 'computer-use:safe-win', order: inner.systemPrompt.getSectionOrder('TOOL_COMPUTER_USE'), text: GUIDANCE })
         }, 'computer-use-safe-win.tools')
