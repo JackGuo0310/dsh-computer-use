@@ -22,7 +22,9 @@ if (process.env.DSH_CUA_LIVE !== '1') {
 }
 
 const args = new Set(process.argv.slice(2))
-const allowedApps = new Set(['notepad.exe'])
+const entry = process.env.DSH_CUA_LIVE_APP ?? 'notepad.exe'
+const { configuredApps } = await import('../src/policy.js')
+const allowedApps = configuredApps([entry])
 const { startCuaRuntime } = await import('../src/cua-adapter.js')
 
 const report = (label, value) => console.log(`${label}: ${typeof value === 'string' ? value : JSON.stringify(value)}`)
@@ -41,7 +43,7 @@ async function main() {
   const runtime = await startCuaRuntime()
   try {
     const targets = await runtime.listTargets(allowedApps)
-    report('allowlisted notepad windows', targets.length)
+    report('allowlisted windows', targets.length)
     if (targets.length === 0) {
       console.error('no on-screen Notepad window found; open one and retry (or pass --open-notepad)')
       return 2
