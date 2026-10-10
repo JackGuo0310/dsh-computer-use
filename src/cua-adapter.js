@@ -3,7 +3,7 @@ import { getDriverPaths, getDriverStatus } from './driver-install.js'
 import { buildPrivateWorkerOptions, STARTUP_TIMEOUT_MS } from './driver-options.js'
 import { ACTION_TIMEOUT_MS, OperationQueue, withTimeout } from './operation-queue.js'
 import { identityFromApp } from './policy.js'
-import { MAX_ELEMENTS, projectSnapshot } from './snapshot-policy.js'
+import { boundedText, MAX_ELEMENTS, projectSnapshot } from './snapshot-policy.js'
 import {
   ActionTarget,
   ClickButton,
@@ -15,6 +15,25 @@ import {
 const ACTION_EFFECT = ['confirmed', 'partial', 'unverifiable', 'suspected-noop', 'refused']
 const ACTION_ROUTE = ['accessibility', 'synthetic-events', 'global-input', 'system-api', 'dom', 'trusted-input']
 const DELIVERY_MODE = ['background', 'foreground', 'not-applicable', 'unknown']
+/** Per-call ceiling on literal text, keeping one typed value inside the model budget. */
+const MAX_TYPED_TEXT = 4096
+
+/**
+ * Name the outcome of a text or key entry.
+ *
+ * `typeText` and `pressKey` return a `ToolResult` rather than an `ActionResult`:
+ * there is no effect, route, or delivery status, so a success only means the
+ * driver accepted the request. The window is the only evidence it landed.
+ *
+ * @param result - Raw `ToolResult` from the driver.
+ * @param label - Operation name used in the refusal message.
+ * @returns Frozen outcome for the tool layer.
+ */
+export function projectTextResult(result, label) {
+  if (result?.isError === true) throw new Error(`${label} was refused: ${boundedText(result.text, 200) || 'no reason given'}`)
+  if (typeof result?.text !== 'string') throw new Error(`Cua returned an unreadable result for ${label}`)
+  return Object.freeze({ accepted: true, message: boundedText(result.text, 200) })
+}
 
 function assertDriver(driver) {
   for (const method of ['listApps', 'listWindows', 'getWindowState', 'click', 'verifyState', 'shutdown']) {
@@ -174,7 +193,11 @@ export class CuaRuntime {
   observe(target, { includeScreenshot = false, signal } = {}) {
     return this.#enqueue(async () => {
       const current = await this.#window(target.pid, target.windowId)
-      if (current.app !== target.app || current.title !== target.title || current.minimized || !current.isOnScreen) throw new Error('Cua window identity changed or is not visible')
+      // Identity is the process, the native window handle, and the executable.
+      // The title is deliberately not part of it: a window retitles itself as its
+      // content changes, and typing into a document is exactly that. An unsafe
+      // title is still refused, by `validateWindow` on every observation.
+      if (current.app !== target.app || current.minimized || !current.isOnScreen) throw new Error('Cua window identity changed or is not visible')
       const state = await this.#driver.getWindowState({
         pid: target.pid,
         windowId: target.windowId,
@@ -196,13 +219,15 @@ export class CuaRuntime {
    * so a caller cannot silently switch coordinate spaces or raise a window. The
    * window identity is re-read immediately before the click.
    *
-   * Verified live against 0.28.0 on Windows 11: a background element click on a
-   * Notepad toolbar toggle reported `route: accessibility`, `delivery.mode:
-   * background`, and `effect: unverifiable`, while the window itself did change
-   * state. The driver's own report is therefore not evidence that an action took
-   * effect, and `unverifiable` does not mean the click failed. Confirm the outcome
-   * from a fresh snapshot of the same window; never retry by escalating, and never
-   * treat an unconfirmed result as permission to send the click again.
+   * Verified live against 0.28.0 on Windows 11, on a Notepad window that was
+   * visible but not the foreground window (Chrome kept the focus throughout): a
+   * background element click reported `route: accessibility`, `delivery.mode:
+   * background`, and `effect: unverifiable`, while the window changed state
+   * without ever taking focus. Background semantic clicking is therefore a hard
+   * capability, and the driver's own report is not evidence that an action took
+   * effect. Confirm the outcome from a fresh snapshot of the same window; never
+   * retry by escalating, and never treat an unconfirmed result as permission to
+   * send the click again.
    *
    * @param target - Frozen window identity from a fresh listing.
    * @param elementToken - Token from a snapshot of that same window.
@@ -213,7 +238,7 @@ export class CuaRuntime {
     if (typeof elementToken !== 'string' || !elementToken || elementToken.length > 1024) return Promise.reject(new Error('invalid Cua element token'))
     return this.#enqueue(async () => {
       const current = await this.#window(target.pid, target.windowId)
-      if (current.app !== target.app || current.title !== target.title || !current.isOnScreen || current.minimized) throw new Error('Cua window identity changed before action')
+      if (current.app !== target.app || !current.isOnScreen || current.minimized) throw new Error('Cua window identity changed before action')
       const result = await this.#driver.click({
         target: new ActionTarget.Window({ pid: target.pid, windowId: target.windowId }),
         position: new ClickPosition.Element({ elementToken }),
@@ -222,6 +247,60 @@ export class CuaRuntime {
         count: 1,
       })
       return projectActionResult(result)
+    }, signal)
+  }
+
+  /**
+   * Type literal text into a target window.
+   *
+   * Unlike `click`, `typeText` declares no delivery mode and returns a plain
+   * `ToolResult`, so there is no `effect`, `route`, or `delivery` status to
+   * report: a successful return means only that the driver accepted the request.
+   * The typed text can only be confirmed by reading the window back.
+   *
+   * @param target - Frozen window identity from a fresh listing.
+   * @param text - Literal text to type.
+   * @param signal - Optional abort signal.
+   * @returns Projected text-entry outcome.
+   */
+  typeText(target, text, signal) {
+    if (typeof text !== 'string' || text.length === 0) return Promise.reject(new Error('text to type must be a nonempty string'))
+    if (text.length > MAX_TYPED_TEXT) return Promise.reject(new Error('text to type exceeds the per-call limit'))
+    return this.#enqueue(async () => {
+      const current = await this.#window(target.pid, target.windowId)
+      if (current.app !== target.app || !current.isOnScreen || current.minimized) throw new Error('Cua window identity changed before typing')
+      const result = await this.#driver.typeText({
+        text,
+        target: new ActionTarget.Window({ pid: target.pid, windowId: target.windowId }),
+      })
+      return projectTextResult(result, 'typing text')
+    }, signal)
+  }
+
+  /**
+   * Press one key, optionally with modifiers, into a target window.
+   *
+   * Like {@link typeText} this has no delivery status; the resulting window state
+   * is the only evidence that the key did anything.
+   *
+   * @param target - Frozen window identity from a fresh listing.
+   * @param key - Key name such as `Enter` or `Tab`.
+   * @param modifiers - Optional modifier keys held during the press.
+   * @param signal - Optional abort signal.
+   * @returns Projected key-press outcome.
+   */
+  pressKey(target, key, modifiers = [], signal) {
+    if (typeof key !== 'string' || !key || key.length > 64) return Promise.reject(new Error('invalid key name'))
+    if (!Array.isArray(modifiers) || modifiers.some(modifier => typeof modifier !== 'string' || modifier.length > 64)) return Promise.reject(new Error('invalid modifiers'))
+    return this.#enqueue(async () => {
+      const current = await this.#window(target.pid, target.windowId)
+      if (current.app !== target.app || !current.isOnScreen || current.minimized) throw new Error('Cua window identity changed before typing')
+      const result = await this.#driver.pressKey({
+        key,
+        target: new ActionTarget.Window({ pid: target.pid, windowId: target.windowId }),
+        ...modifiers.length > 0 ? { modifiers } : {},
+      })
+      return projectTextResult(result, 'pressing a key')
     }, signal)
   }
 

@@ -26,7 +26,7 @@
 
 ## 能力准入门槛
 
-增加输入动作前，须验证选定 SDK 版本的后台目标语义、delivery 状态与失败/取消行为；通过 DSH 一次性审批，并在审批后重验进程、窗口、快照、目标 token 和 driver generation。拒绝、缺失、取消或目标变化必须拒绝；送达状态模糊时不可重放。取消语义的插件侧前提（一次只跑一个调用、被放弃的调用隔离 runtime、不可自动重放）已由 `src/operation-queue.js` 固化。
+增加输入动作前，须验证选定 SDK 版本的后台目标语义、delivery 状态与失败/取消行为；通过 DSH 一次性审批，并在审批后重验进程、窗口、快照、目标 token 和 driver generation。拒绝、缺失、取消或目标变化必须拒绝；送达状态模糊时不可重放。取消语义的插件侧前提（一次只跑一个调用、被放弃的调用隔离 runtime、不可自动重放）已由 `src/operation-queue.js` 固化。**后台元素点击的目标语义与 delivery 状态已由 2026-10-10 的 live 实测验证通过（见下）；文字输入实测需要窗口焦点，失败/取消路径、审批后重验链路与前台投递通路仍未验证，因此动作工具仍未注册。**
 
 ### 后台点击的 live 实测结论（2026-10-10，仅记事本）
 
@@ -40,9 +40,67 @@
 1. 驱动的 `ActionResult` **不是**效果证据；效果只能由同一窗口的 fresh snapshot 确认。
 2. `unverifiable` 不等于失败，**也不构成重发许可**——送达状态模糊时不可重放。
 
-后台语义本身（窗口不在前台时的送达）尚未单独测量，本次窗口是前台。失败/取消路径、多动作连续性、坐标点击、非 toggle 类控件的效果确认方式均未验证。因此门槛**仍未完全满足**，当前没有动作工具。
+### 真正后台窗口的送达（2026-10-10，同一按钮复测）
 
-输出截图前，须核实 DSH 工具运行时（`@deepseek-ai/dsh-tools`）的附件/图片管线并通过真实 Loader 输出测试。当前 JSON/text 适配器不能证明图片能被渲染；插件暂时拒绝截图请求，不宣称可用。
+第一次点击时记事本是前台窗口。复测时保持 Chrome 在前台，记事本为「在屏但非激活」的后台窗口（`IsIconic` 为 false、`GetForegroundWindow` 属于 Chrome），对同一个 index 11 元素再发一次后台点击：
+
+- 驱动返回与前台那次**完全一致**：`effect: unverifiable`、`route: accessibility`、`delivery.mode: background`
+- 元素数 30 → 31、标签序列变化，用户确认按钮在**未获得焦点的情况下**仍变为按下态
+
+结论：**后台语义点击是硬能力**。UIA 通路直接作用于指定窗口，不需要前台、不抢焦点、不移动系统指针。门槛中最关键的一项（后台目标语义 + delivery 状态）已验证通过。
+
+仍未验证：失败/取消路径、多动作连续性、坐标点击、非 toggle 类控件的效果确认方式，以及审批后重验链路。因此动作工具**仍未注册**，下一步是先把这些补齐再接线。
+
+最小化窗口会被 `listWindows({ onScreenOnly: true })` 过滤掉，因此不可观察也不可点击——这是有意的拒绝，不是缺陷。
+
+### 打字与按键需要焦点（2026-10-10）
+
+给 adapter 加了 `typeText` / `pressKey` 后实测：
+
+- **后台窗口**（Chrome 持焦点）输入 27 字符：驱动自述 `Sent 27 char(s) via PostMessage ... could not read the focused field back, e.g. the target isn't foreground`，而窗口字符数**停在 0**——文字没有进入文档。
+- **前台窗口**同样输入：字符数客观递增 **0 → 27 → 39 → 49**，截图确认三行文字与换行均正确。
+
+因此当前能力边界是明确的：
+
+| 能力 | 后台 | 前台 | 证据 |
+|---|---|---|---|
+| 元素点击 | 可用 | 可用 | `route: accessibility`，窗口改变且不抢焦点 |
+| 文字输入 | **失败** | 可用 | 后台自述成功但字符数不变 |
+| 按键 | 未单独验证 | 可用 | 换行正确生效 |
+
+`typeText` / `pressKey` 的 SDK 输入类型里**没有 `deliveryMode` 字段**（不同于 `click` 的必填 `deliveryMode`），但驱动失败时明确建议 `retry with delivery_mode:"foreground"`。说明存在本插件尚未暴露的前台投递通路；该通路未定位前，**文字输入按需要焦点对待**，且可能抢焦点——这是用户可感知副作用，接入动作工具前必须解决或明示。
+
+### 窗口标题不是身份（2026-10-10 修复）
+
+首次前台打字后即失败并报 `window identity changed or is not visible`：记事本把窗口标题从「未标题 - Notepad」改成「Cua background typing check - Notepad」，而 adapter 把标题纳入了动作前的身份校验。**标题会随文档内容变化，打字本身就是改标题**，用它做身份等于第一次输入后必然自我锁死。
+
+已修复：身份只由 `(pid, windowId)` 与可执行身份构成，标题不再参与动作前的比对。不安全标题仍由 `validateWindow` 在每次观察时拒绝。
+
+## 截图经附件服务交付给模型（2026-10-10）
+
+此前 `safe_win_observe` 硬拒绝 `screenshot: true`，理由是无法证明图片能被模型看到。现在打通，方式与 DSH 官方 `computer-use-cua-driver-mcp` 的组合测试一致：
+
+- `src/screenshot-delivery.js` 通过 `ctx.get('attachments')` **按服务名**取宿主附件存储，因此**不需要 import 任何宿主包**，「不引入第二份 dsh-tools」的约束不受影响。
+- 截图字节**绝不进入规范 JSON**：只有 `ImageAttachmentRef` 进入结果字段，字节由附件服务校验（完整解码光栅图）并规范化后存储。
+- 图像块通过 `projectContent` 投影到内容里，与渲染文本并存。`src/tool-def.js` 新增了该钩子，与宿主同名钩子契约一致。
+- 投影前会校验「结果值仍是执行时那个值」：若策略层改写了值，就保留渲染文本、不挂图，避免把截图贴到它并不描述的输出上。
+- 组合中没有附件存储时，`screenshot: true` **fail closed**并给出明确原因；`screenshot: false` 完全不需要该服务。
+
+官方组合测试的四条验收标准，本仓库已覆盖后三条（mock 附件服务）：工具结果里同时出现 text 与 image 块、引用可从附件服务读回、**base64 不出现在结果 JSON 中**。
+
+**未验证**：真实 DSH 宿主中的端到端渲染（模型是否真的看到图）、多图批次、模型路由的图片能力协商。这需要把本仓库挂进用户的 DSH profile 实测。
+
+### agent cursor 的可见副作用（2026-10-10）
+
+SDK 提供 `SetAgentCursorEnabled` / `SetAgentCursorMotion` / `SetAgentCursorTheme` 一整套光标 API。本插件**未调用任何一项**，但 live 点击时屏幕上仍出现了蓝色 agent cursor：它是 `route: accessibility` 通路（UI Automation）的副产品，关闭它需要显式 `session`，而本插件的点击走隐式生命周期会话。
+
+- 该光标是独立覆盖层，不替换也不干扰用户自己的系统指针。
+- 用户明确表示保留显示：让自动化输入在屏幕上可见，好过悄悄移动别人的鼠标。
+- 观察-only 模式不受影响——没有输入就没有光标。
+
+因此这是**已知且被接受的用户可感知副作用**，不是待修缺陷。
+
+输出截图前，须核实 DSH 工具运行时（`@deepseek-ai/dsh-tools`）的附件/图片管线并通过真实 Loader 输出测试。**附件管线已按官方组合测试的契约打通（见下），但真实宿主中的模型可见性尚未验证，因此仍不宣称截图已被模型看到。**
 
 ## 驱动安装的三个易错点（0.1.2 起修正）
 
@@ -119,7 +177,9 @@ Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必
 - B.3（调用串行化、放弃隔离与 drain）：把执行控制抽到不依赖 Cua SDK 的 `src/operation-queue.js`：超时/取消不再隐含「底层已停」的假设，被放弃的调用隔离 runtime，关闭前有界 drain。仍是观察-only，不代表已满足动作门禁。
 - B.4（worker 启动选项固定）：把启动选项抽到 `src/driver-options.js` 并对着真实 SDK 断言整份记录。发现 SDK 的 record factory 完全不校验（见上），因此授权上限只能由该断言保证。测试仅 import SDK 载入库，不启动 worker、不调用任何 driver 方法。
 - B.5（白名单路径项与运行中应用选择器）：白名单条目支持绝对路径且与文件名互不替代；设置侧栏改为逐条增删改，并可从 Host 读取本机运行中的可执行程序填入。live 实测发现驱动对 Store 版应用不上报 `launchPath`（490 个应用中 12 个缺失，含记事本），因此文件名项保留，路径项是可选的更严格形式。
-- B.6（后台点击送达语义的 live 证据）：对记事本发一次后台元素点击，驱动报 `unverifiable` 而窗口确实改变，据此固化「驱动自述不是效果证据、模糊结果不可重放」。门槛其余部分（取消/失败路径、真正后台窗口、非 toggle 控件）仍未验证，因此动作工具仍未注册。
+- B.6（后台点击送达语义的 live 证据）：前台窗口与**非激活后台窗口**两次点击均报 `route: accessibility` / `delivery.mode: background` / `effect: unverifiable`，而窗口确实改变且未抢焦点。据此固化「后台语义是硬能力」「驱动自述不是效果证据、模糊结果不可重放」。
+- B.7（文字输入的能力边界与标题身份修复）：实测 `typeText` / `pressKey` 在后台窗口下自述成功但字符数不变，前台则字符数客观递增（0→27→39→49）。同时修复「窗口标题被当作身份」导致首次输入后自我锁死的缺陷。动作工具仍未注册。
+- B.8（截图经附件服务交付）：新增 `src/screenshot-delivery.js` 与 `defineTool` 的 `projectContent` 钩子，截图以 `ImageAttachmentRef` 进结果、图像块由投影并入内容，附件存储按服务名取得、不 import 宿主包，缺服务时 fail closed。真实宿主中的模型可见性仍未验证。
 - C（输入动作、审批后重验、结果验证、截图附件）：未完成；动作关闭，图像管线未验证。
 - D（移除旧 helper 链路、测试/配置/文档/打包）：旧产品代码与测试已移除；打包校验覆盖 client/locale/icon 资源。
 - E（最终审阅与本地提交）：前序实现已有本地提交与 tag `mvp-0.1.0`；后续 GUI/配置修订按检查结果单独本地提交，不 push。

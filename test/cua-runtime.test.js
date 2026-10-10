@@ -75,10 +75,16 @@ test('a click refuses a missing or oversized element token without calling the d
   }
 })
 
-test('a click is refused when the window identity changed after the snapshot', async () => {
-  const driver = stubDriver({ state: { window: { ...window, title: 'Something else' } } })
-  await assert.rejects(new CuaRuntime(driver).click(target, 't'), /window identity changed before action/)
-  assert.equal(driver.calls.some(([name]) => name === 'click'), false)
+test('a retitled window is still the same window, but a swapped executable is not', async () => {
+  // Typing into a document renames its window. Treating the title as identity
+  // broke the action path after the first typed character.
+  const driver = stubDriver({ state: { window: { ...window, title: 'Cua background typing check - Notepad' } } })
+  const result = await new CuaRuntime(driver).click(target, 't')
+  assert.equal(result.effect, 'confirmed')
+  assert.equal(driver.calls.some(([name]) => name === 'click'), true)
+
+  const swapped = stubDriver({ state: { app: { ...app, launchPath: 'C:\\Other\\calc.exe', name: 'calc.exe' } } })
+  await assert.rejects(new CuaRuntime(swapped).click(target, 't'), /window identity changed before action/)
 })
 
 test('listTargets keeps only allowlisted executables from the fresh listing', async () => {

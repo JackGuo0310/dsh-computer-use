@@ -5,6 +5,11 @@
  * `DSH_CUA_LIVE=1`, and the click phase additionally requires `DSH_CUA_LIVE_CLICK=1`
  * so the read-only phase can be inspected first.
  *
+ * `DSH_CUA_LIVE_TEXT` types into the focused window, `|` separating steps and `>`
+ * introducing a key press for that step, so a step that should start on its own
+ * line is written `text>Enter`. Steps are appended at the caret, so omitting the
+ * separator runs two texts together on one line.
+ *
  * It never uses foreground delivery, never sends raw coordinates, and never
  * launches anything unless `--open-notepad` is passed. It is not part of
  * `npm test` and is never imported by the plugin.
@@ -61,35 +66,61 @@ async function main() {
     const shot = await runtime.observe(target, { includeScreenshot: true })
     report('screenshot images', shot.images.map(image => ({ mimeType: image.mimeType, bytes: image.data.length })))
 
-    if (!process.env.DSH_CUA_LIVE_CLICK) {
-      console.log('read-only phase complete; set DSH_CUA_LIVE_CLICK=1 to also deliver one background click')
+    if (!process.env.DSH_CUA_LIVE_CLICK && !process.env.DSH_CUA_LIVE_TEXT) {
+      console.log('read-only phase complete; set DSH_CUA_LIVE_CLICK=1 and/or DSH_CUA_LIVE_TEXT to send input')
       return 0
     }
 
-    const index = process.env.DSH_CUA_LIVE_CLICK_INDEX === undefined ? undefined : Number(process.env.DSH_CUA_LIVE_CLICK_INDEX)
-    const role = process.env.DSH_CUA_LIVE_CLICK_ROLE
-    const element = index === undefined
-      ? (role ? shot.elements.find(item => item.role === role) : shot.elements[0])
-      : shot.elements.find(item => item.index === index)
-    if (!element) {
-      console.error(`no snapshot element${index === undefined ? role ? ` with role ${role}` : '' : ` at index ${index}`} to click`)
-      return 3
-    }
-    report('clicking element', elementSummary(element))
-    const result = await runtime.click(target, element.token)
-    report('action result', result)
+    if (process.env.DSH_CUA_LIVE_CLICK) {
+      const index = process.env.DSH_CUA_LIVE_CLICK_INDEX === undefined ? undefined : Number(process.env.DSH_CUA_LIVE_CLICK_INDEX)
+      const role = process.env.DSH_CUA_LIVE_CLICK_ROLE
+      const element = index === undefined
+        ? (role ? shot.elements.find(item => item.role === role) : shot.elements[0])
+        : shot.elements.find(item => item.index === index)
+      if (!element) {
+        console.error(`no snapshot element${index === undefined ? role ? ` with role ${role}` : '' : ` at index ${index}`} to click`)
+        return 3
+      }
+      report('clicking element', elementSummary(element))
+      report('action result', await runtime.click(target, element.token))
 
-    // A fresh snapshot is the only evidence that the click landed: the driver
-    // reports what it believes it did, the window reports what actually changed.
-    const after = await runtime.observe(target, { includeScreenshot: false })
-    const landed = after.elements.find(item => item.index === element.index)
-    report('clicked element after', landed ? elementSummary({ ...landed, selected: landed.selected, enabled: landed.enabled }) : 'absent from the new snapshot')
-    report('post-action snapshot', {
-      snapshotId: after.snapshotId,
-      elementCount: after.elements.length,
-      treeChanged: after.treeMarkdown !== text.treeMarkdown,
-      labelChanged: JSON.stringify(after.elements.map(e => [e.index, e.label, e.selected])) !== JSON.stringify(text.elements.map(e => [e.index, e.label, e.selected])),
-    })
+      // A fresh snapshot is the only evidence that the click landed: the driver
+      // reports what it believes it did, the window reports what actually changed.
+      const after = await runtime.observe(target, { includeScreenshot: false })
+      const landed = after.elements.find(item => item.index === element.index)
+      report('clicked element after', landed ? elementSummary(landed) : 'absent from the new snapshot')
+      report('post-action snapshot', {
+        snapshotId: after.snapshotId,
+        elementCount: after.elements.length,
+        treeChanged: after.treeMarkdown !== text.treeMarkdown,
+        labelChanged: JSON.stringify(after.elements.map(e => [e.index, e.label])) !== JSON.stringify(text.elements.map(e => [e.index, e.label])),
+      })
+    }
+    const typed = process.env.DSH_CUA_LIVE_TEXT
+    if (typed !== undefined) {
+      // Typing is the primary thing a computer-use provider does, so it gets its
+      // own phase: literal text, then an optional key, then a read-back of the
+      // window. The window's own character count is the objective evidence.
+      for (const step of typed.split('|')) {
+        const [textToType, keyAfter] = step.split('>')
+        const before = await runtime.observe(target, { includeScreenshot: false })
+        report('typing', JSON.stringify(textToType))
+        report('type result', await runtime.typeText(target, textToType))
+        if (keyAfter !== undefined) {
+          // `Ctrl+End` is one chord: the first name is the key, the rest are the
+          // modifiers held with it. Sending `Ctrl` alone is a different action.
+          const parts = keyAfter.split('+').map(part => part.trim()).filter(Boolean)
+          const [key, ...modifiers] = parts.length > 1 ? [parts.at(-1), ...parts.slice(0, -1)] : parts
+          report('pressing key', { key, modifiers })
+          report('press result', await runtime.pressKey(target, key, modifiers))
+        }
+        const now = await runtime.observe(target, { includeScreenshot: false })
+        report('window read-back', {
+          charCount: now.elements.find(item => /个字符/.test(item.label))?.label,
+          treeChanged: now.treeMarkdown !== before.treeMarkdown,
+        })
+      }
+    }
     return 0
   } finally {
     await runtime.close()

@@ -17,7 +17,14 @@ export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const SUPPORTED_IMAGE = /^image\/(png|jpeg|webp)$/
 const ACTION_NAMES = ['click', 'press', 'select', 'toggle']
 
-function boundedText(value, limit) {
+/**
+ * Clip a value to a text ceiling, treating a non-string as empty.
+ *
+ * @param value - Candidate text.
+ * @param limit - Maximum characters kept.
+ * @returns The clipped text, or `''`.
+ */
+export function boundedText(value, limit) {
   return typeof value === 'string' ? value.slice(0, limit) : ''
 }
 
