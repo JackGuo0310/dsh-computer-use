@@ -86,7 +86,7 @@ peerDependencies 就没事」并不成立：宿主包一旦以任何可安装形
 
 插件安装后只需一个包名 `dsh-computer-use-safe-win`：同一个 Loader 行同时挂载 Host 半与浏览器半（`dsh.client.platform: web` 声明使其进入浏览器模块表）。**不再声明单独的 `/client` 行**——子路径行会解析到同一包并在模块表中与包名行冲突。
 
-Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必须在 `/api` 下）上提供两条 exact 路由，由 Connection 的 Host/Origin 栅栏和浏览器认证先行裁决：
+Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必须在 `/api` 下）上提供两条 exact 路由，由 Connection 的 Host/Origin 栅栏和浏览器认证先行裁决。`validate-config` 仅是 GUI 草稿预检，不保护 Settings Remote 的直接写入；配置 schema 与插件 `validateConfig` 导出负责拒绝非法配置，`apply` 在任何驱动/worker动作前再 fail closed。
 
 - `GET /api/computer-use-safe-win/status`：只读受管目录，区分目标版本与已安装版本，并标记 `runtimeVerified: false`。
 - `POST /api/computer-use-safe-win/install`：除认证外还要求回环请求地址、same-origin 标记与显式确认头；远程 Host 或跨源请求返回 403，同一时刻只允许一次安装。
@@ -97,6 +97,7 @@ Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必
 
 - A（版本/API/拓扑静态证据）：完成，见 STAGE-A.md；未运行 Cua。
 - B（观察路径、身份校验、Loader 与生命周期）：已实现并有桌面无关测试；完整打包验证已通过。
+- B.1（设置写入校验与多应用 GUI 往返）：schema 限定 exe 文件名和 64 项上限，Host `validateConfig` 与 apply 均检查危险项、重复项和启用/白名单约束；GUI 按真实换行显示多应用白名单。只完成桌面无关验证，不代表 Remote 权限策略或真实 UI 验收。
 - C（输入动作、审批后重验、结果验证、截图附件）：未完成；动作关闭，图像管线未验证。
 - D（移除旧 helper 链路、测试/配置/文档/打包）：旧产品代码与测试已移除；打包校验覆盖 client/locale/icon 资源。
 - E（最终审阅与本地提交）：前序实现已有本地提交与 tag `mvp-0.1.0`；后续 GUI/配置修订按检查结果单独本地提交，不 push。

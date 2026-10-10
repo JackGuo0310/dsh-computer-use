@@ -66,6 +66,18 @@ test('a string allowlist is refused by the declared Config validator', async () 
   }
 })
 
+test('Config validation rejects overlong executable names and lists over 64 entries', () => {
+  assert.throws(() => Plugin.Config({ enabled: false, allowedApps: ['bad/name.exe'] }), /allowedApps\[0\].*regexp/)
+  assert.throws(() => Plugin.Config({ enabled: false, allowedApps: [`${'x'.repeat(129)}.exe`] }), /allowedApps\[0\].*regexp/)
+  assert.throws(() => Plugin.Config({ enabled: false, allowedApps: Array.from({ length: 65 }, (_, index) => `app${index}.exe`) }), /allowedApps.*length <= 64/)
+})
+
+test('the exported Host config validator rejects cross-field and protected app violations', () => {
+  assert.throws(() => Plugin.validateConfig({ enabled: true, allowedApps: [] }), /nonempty executable allowlist/)
+  assert.throws(() => Plugin.validateConfig({ enabled: false, allowedApps: ['powershell.exe'] }), /forbidden application/)
+  assert.throws(() => Plugin.validateConfig({ enabled: false, allowedApps: ['Notepad.exe', 'notepad.exe'] }), /duplicate/)
+})
+
 test('a well-formed allowlist loads the two inspection-only tools', async () => {
   const result = await loadWith(['  config:', '    enabled: true', '    allowedApps: ["notepad.exe"]'])
   try {

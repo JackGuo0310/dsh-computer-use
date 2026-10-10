@@ -1,13 +1,13 @@
-import { configuredApps, validateWindow } from './policy.js'
+import { validateWindow } from './policy.js'
 import { getDriverStatus } from './driver-install.js'
 import { registerDriverRoutes } from './driver-routes.js'
 import { defineTool } from './tool-def.js'
-import { SettingsSchema, validateSettingsDraft } from './settings-validation.js'
+import { SettingsSchema, validateSettingsConfig, validateSettingsDraft } from './settings-validation.js'
 
 export const name = 'computer-use-safe-win'
 export const inject = ['connection', 'configForms']
 export const Config = SettingsSchema
-export const validateConfig = validateSettingsDraft
+export const validateConfig = validateSettingsConfig
 
 const PROVIDER = 'safe-win'
 const CHILD = 'computer-use-safe-win.runtime'
@@ -113,9 +113,12 @@ export async function apply(ctx, config) {
     },
   }), 'computer-use-safe-win: validate config')
   if (!config?.enabled) return
-  if (!(await getDriverStatus()).installed) throw new Error('install the pinned Cua Driver from the plugin settings before enabling observation')
+  // Settings writes are validated by the declared Config schema, which cannot
+  // express cross-field or protected-name rules; re-check the persisted value
+  // here so a direct remote write still fails closed before any driver work.
   if (process.platform !== 'win32') throw new Error('this computer-use provider requires Windows')
-  const allowedApps = configuredApps(config.allowedApps)
+  const { allowedApps } = validateSettingsConfig({ enabled: true, allowedApps: config.allowedApps ?? [] })
+  if (!(await getDriverStatus()).installed) throw new Error('install the pinned Cua Driver from the plugin settings before enabling observation')
   const { startCuaRuntime } = await import('./cua-adapter.js')
-  await startSafeWinProvider(ctx, { allowedApps, startRuntime: signal => startCuaRuntime({ signal }) })
+  await startSafeWinProvider(ctx, { allowedApps: new Set(allowedApps), startRuntime: signal => startCuaRuntime({ signal }) })
 }

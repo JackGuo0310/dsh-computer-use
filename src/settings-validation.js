@@ -1,9 +1,11 @@
 import schema from '@deepseek-ai/schemastery'
 import { validateAllowedApps } from './config-policy.js'
 
+const executableName = schema.string().pattern(/^[\w.-]{1,128}\.exe$/i)
+
 export const SettingsSchema = schema.object({
   enabled: schema.boolean().default(false).volatile(),
-  allowedApps: schema.array(schema.string()).default([]).volatile(),
+  allowedApps: schema.array(executableName).max(64).default([]).volatile(),
 })
 
 export function validateSettingsDraft(value) {
@@ -17,4 +19,10 @@ export function validateSettingsDraft(value) {
   } catch (error) {
     return { issues: [{ message: error.message }] }
   }
+}
+
+export function validateSettingsConfig(value) {
+  const result = validateSettingsDraft(value)
+  if (result.issues) throw new Error(result.issues[0].message)
+  return result.value
 }

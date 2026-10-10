@@ -31,7 +31,14 @@ test('the driver settings routes report status without accessing the desktop', a
 
 test('the config validator rejects invalid types and empty enabled allowlists', () => {
   assert.equal(typeof Plugin.Config.toJSON, 'function')
-  assert.ok(Plugin.validateConfig({ enabled: 'true', allowedApps: [] }).issues)
-  assert.ok(Plugin.validateConfig({ enabled: true, allowedApps: [] }).issues)
-  assert.deepEqual(Plugin.validateConfig({ enabled: false, allowedApps: [] }).value, { enabled: false, allowedApps: [] })
+  assert.throws(() => Plugin.validateConfig({ enabled: 'true', allowedApps: [] }), /enabled must be an explicit boolean/)
+  assert.throws(() => Plugin.validateConfig({ enabled: true, allowedApps: [] }), /nonempty executable allowlist/)
+  assert.deepEqual(Plugin.validateConfig({ enabled: false, allowedApps: [] }), { enabled: false, allowedApps: [] })
+})
+
+test('a persisted allowlist that bypasses the GUI validator still fails closed at apply', async () => {
+  for (const allowedApps of [['powershell.exe'], ['Notepad.exe', 'notepad.exe'], Array.from({ length: 65 }, (_, index) => `app${index}.exe`)]) {
+    const h = host()
+    await assert.rejects(Plugin.apply(h.ctx, { enabled: true, allowedApps }), /forbidden application|duplicate|64 applications|requires Windows/)
+  }
 })

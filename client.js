@@ -61,11 +61,13 @@ window.__ModuleLoader__.load({
       }
       async function saveConfig(event) {
         event.preventDefault()
+        // The disabled button does not cover a second Enter-key submit.
+        if (configBusy) return
         setConfigBusy(true)
         setError('')
         setNotice('')
         try {
-          const allowedApps = globalThis.__normalizeAllowedApps(draftApps ?? (config.value?.allowedApps ?? []).join('\\n'))
+          const allowedApps = globalThis.__normalizeAllowedApps(draftApps ?? (config.value?.allowedApps ?? []).join('\n'))
           const enabled = draftEnabled ?? Boolean(event.currentTarget.elements.enabled.checked)
           if (enabled && allowedApps.length === 0) throw new Error('enabled observation requires a nonempty allowlist')
           const validation = await request('/api/computer-use-safe-win/validate-config', {
@@ -86,7 +88,7 @@ window.__ModuleLoader__.load({
       }
       const configReady = config.status === 'ready' && config.value
       const canWrite = configReady && config.writable && config.mode === 'host' && config.revision !== undefined
-      const currentApps = draftApps ?? (config.value?.allowedApps ?? []).join('\\n')
+      const currentApps = draftApps ?? (config.value?.allowedApps ?? []).join('\n')
       return h('section', { style: { padding: '16px', border: '1px solid var(--dsw-border-default, #53657b)', borderRadius: '12px', maxWidth: '600px' } },
         h('h4', { style: { margin: '0 0 8px' } }, t('title')),
         h('p', null, t('intro')),

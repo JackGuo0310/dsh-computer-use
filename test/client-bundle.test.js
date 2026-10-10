@@ -175,7 +175,7 @@ test('the Settings nav label follows the active locale and English UI is complet
 })
 
 test('persistent GUI settings submit an atomic revision-fenced Host mutation', async () => {
-  const form = configForm({ revision: 7, enabled: false })
+  const form = configForm({ revision: 7, enabled: false, allowedApps: ['notepad.exe', 'calc.exe'] })
   const page = await evaluate({ form, respond: async path => path.endsWith('/validate-config') ? validConfig : absent })
   let element = await page.render()
   let submit = findElement(element, node => node.type === 'form')
@@ -183,6 +183,7 @@ test('persistent GUI settings submit an atomic revision-fenced Host mutation', a
   const checkbox = findElement(element, node => node.type === 'input' && node.props.type === 'checkbox')
   const allowlist = findElement(element, node => node.type === 'textarea')
   assert.equal(checkbox.props.checked, false)
+  assert.equal(allowlist.props.value, 'notepad.exe\ncalc.exe')
   allowlist.props.onChange({ target: { value: 'notepad.exe' } })
   checkbox.props.onChange({ target: { checked: true } })
   element = await page.render()
