@@ -7,15 +7,20 @@ const adapterPath = fileURLToPath(new URL('../src/cua-adapter.js', import.meta.u
 const policyPath = fileURLToPath(new URL('../src/policy.js', import.meta.url))
 const pluginPath = fileURLToPath(new URL('../src/plugin.js', import.meta.url))
 
-test('the Host half only waits for services that exist in the host process', async () => {
+test('the Host half waits only for services the settings panel can resolve', async () => {
   const plugin = await import('../src/plugin.js')
-  // `configForms` is a browser service owned by @deepseek-ai/dsh-ui-settings.
-  // Declaring it here left the plugin pending forever at startup, so no route was
-  // registered and its settings section rendered empty.
+  // `configForms` is a browser service (@deepseek-ai/dsh-ui-settings) and can never
+  // exist in the Host process; declaring it left this plugin pending forever.
+  // `computerUse` is required, and the settings panel offers to install the
+  // package that provides it.
   assert.deepEqual([...plugin.inject].sort(), ['computerUse', 'connection'])
-  assert.equal(plugin.inject.includes('configForms'), false)
   assert.equal(typeof plugin.Config, 'function', 'Config must be the callable Schemastery schema the Host resolves')
   assert.equal(typeof plugin.Config.toJSON, 'function')
+  assert.equal(plugin.REQUIRED_PACKAGE, '@deepseek-ai/dsh-computer-use')
+
+  const source = await readFile(pluginPath, 'utf8')
+  assert.doesNotMatch(source, /ctx\.configForms/)
+  assert.match(source, /ctx\.computerUse\.register\(PROVIDER\)/, 'the provider must take the exclusive registration')
 })
 
 test('the Cua adapter uses only the SDK-managed private worker topology', async () => {

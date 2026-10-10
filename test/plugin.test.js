@@ -34,6 +34,8 @@ class StubRuntime {
 function harness({ attachments } = {}) {
   const ctx = new Context()
   const state = { provider: null, tools: new Map(), sections: [], released: 0 }
+  // The provider takes the shared exclusive registration, so the test host must
+  // provide it; a real profile installs the package that supplies it.
   ctx.provide('computerUse', { register(name) {
     if (state.provider) throw new Error('computer use slot already taken')
     state.provider = name

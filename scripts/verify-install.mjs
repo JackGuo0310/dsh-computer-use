@@ -69,8 +69,11 @@ async function main() {
       return modules.get(specifier)
     } }
     await ctx.provide('connection', { fetch: { register(route) { routes.set(route.path, route); return () => routes.delete(route.path) } } })
-    // The provider takes the exclusive computer-use registration even while
-    // observation is disabled, so the Host service must exist for it to mount.
+    // A profile that has installed the prerequisite: `@deepseek-ai/dsh-computer-use`
+    // supplies the exclusive provider registry this plugin injects. A profile
+    // without it leaves the plugin pending, which the panel now explains and
+    // offers to install. `configForms` is deliberately absent: it is a browser
+    // service and must never appear in a Host injection list.
     const registrations = []
     await ctx.provide('computerUse', { register(name) { registrations.push(name); return async () => { registrations.pop() } } })
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
@@ -78,11 +81,13 @@ async function main() {
     for (const fiber of ctx.loader.entries()) await fiber.fiber?.await()
     const inactive = [...ctx.loader.entries()].filter(entry => entry.fiber?.state === 5 || entry.fiber?.state === 6)
     assert.deepEqual(inactive.map(entry => entry.options.id), [], `entries failed to activate: ${inactive.map(entry => entry.options.id).join(', ')}`)
-    assert.deepEqual([...routes.keys()].sort(), ['/api/computer-use-safe-win/install', '/api/computer-use-safe-win/running-apps', '/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
+    assert.deepEqual([...routes.keys()].sort(), ['/api/computer-use-safe-win/install', '/api/computer-use-safe-win/requirements', '/api/computer-use-safe-win/running-apps', '/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
+    assert.deepEqual(registrations, ['safe-win'], 'the provider takes the exclusive registration while observation is disabled, so enabling needs no restart')
+    const requirements = await routes.get('/api/computer-use-safe-win/requirements').fetch(new Request('http://127.0.0.1:3080/api/computer-use-safe-win/requirements'))
+    assert.deepEqual(await requirements.json(), { computerUseRegistry: true, package: '@deepseek-ai/dsh-computer-use' })
     // The provider mounts while observation is disabled so that enabling takes effect
     // on the next call; the tools refuse until the live settings enable it.
     assert.deepEqual(ctx.tools.schemas().map(schema => schema.name).sort(), ['safe_win_list_windows', 'safe_win_observe'])
-    assert.deepEqual(registrations, ['safe-win'], 'the provider registers even while observation is disabled, so enabling needs no restart')
     const refused = await ctx.tools.execute({ name: 'safe_win_list_windows', arguments: {}, callId: 'call-1', signal: new AbortController().signal })
     assert.match(JSON.stringify(refused), /observation is disabled/)
     const status = await routes.get('/api/computer-use-safe-win/status').fetch(new Request('http://127.0.0.1:3080/api/computer-use-safe-win/status'))

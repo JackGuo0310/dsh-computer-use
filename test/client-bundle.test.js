@@ -8,6 +8,10 @@ const bundle = await readFile(fileURLToPath(new URL('../client.js', import.meta.
 const absent = { installed: false, supported: true, version: '0.28.0', installedVersion: null }
 const present = { installed: true, supported: true, version: '0.28.0', installedVersion: '0.28.0' }
 const validConfig = { valid: true, value: { enabled: true, allowedApps: ['notepad.exe'] } }
+/** The prerequisite the Host half reports; `false` renders the install prompt. */
+const registryReady = { computerUseRegistry: true, package: '@deepseek-ai/dsh-computer-use' }
+const registryMissing = { computerUseRegistry: false, package: '@deepseek-ai/dsh-computer-use' }
+const REQUIRED_PACKAGE = '@deepseek-ai/dsh-computer-use'
 
 function configForm({ status = 'ready', enabled = false, allowedApps = [], writable = true, mode = 'host', revision = 1, accept = true } = {}) {
   let current = { status, value: status === 'ready' ? { enabled, allowedApps } : undefined, base: {}, user: {}, revision, writable, mode }
@@ -31,7 +35,7 @@ function configForm({ status = 'ready', enabled = false, allowedApps = [], writa
 }
 
 /** Evaluate the browser artifact against stub Cordis, React, configForms, and fetch seams. */
-async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm() } = {}) {
+async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, requirements = registryReady } = {}) {
   const registered = []
   const deferredSlot = new Map()
   const effects = []
@@ -80,7 +84,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   }
   const slots = {
     inject(name, register) { deferredSlot.set(name, register) },
-    register(spec, Component) { registered.push({ spec, Component }); return () => { registered.length -= 1 } },
+    register(spec, Component, extra) { registered.push({ spec, Component, extra }); return () => { registered.length -= 1 } },
   }
   const active = locale.toLowerCase().startsWith('zh') ? 'zh' : 'en'
   const localeService = {
@@ -93,8 +97,10 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     navigator: { language: locale },
     __configForms: configForms,
     setTimeout,
+    crypto: { randomUUID: () => 'request-1' },
     fetch: async (path, options) => {
       seen.push({ path, options })
+      if (path.endsWith('/requirements')) return { ok: true, json: async () => requirements }
       const value = await respond(path, options)
       return value instanceof Error ? value : { ok: value?.ok !== false, json: async () => value }
     },
@@ -108,7 +114,17 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     assert.equal(specifier, 'react', 'the artifact may request only the seeded React module')
     return react
   })
-  namespace.apply({ slots, locale: localeService, configForms, effect: run => { run(); return () => {} } })
+  const installs = []
+  const pluginManagerStub = {
+    installBundle: async spec => { installs.push(spec); return { ok: true, value: { installed: spec } } },
+  }
+  namespace.apply({
+    slots, locale: localeService, configForms,
+    // `withManager: false` reproduces a Host that does not mount the
+    // plugin-manager client half, so the panel must only explain.
+    remote: withManager ? { pluginManager: pluginManagerStub } : undefined,
+    effect: run => { run(); return () => {} },
+  })
   assert.equal(deferredSlot.has('settings.section'), true)
   for (const register of deferredSlot.values()) register()
 
@@ -118,7 +134,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     effectCursor = 0
     effects.length = 0
     const t = key => dictionaries.get('computerUseSafeWin')?.[active]?.[key] ?? key
-    const element = registered[0].Component({ close() {}, t, configForms })
+    const element = registered[0].Component({ close() {}, t, configForms, ...registered[0].extra })
     renderCurrentTarget = { elements: { enabled: { checked: Boolean(findElement(element, node => node.type === 'input' && node.props.type === 'checkbox')?.props.checked) } } }
     for (const effect of effects) effect()
     return element
@@ -139,7 +155,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     await button.props.onClick()
     await settle()
   }
-  return { namespace, registered, render, press, seen, spec: registered[0].spec, form }
+  return { namespace, registered, render, press, seen, installs, spec: registered[0].spec, form }
 }
 
 const textOf = element => JSON.stringify(element)
@@ -175,7 +191,7 @@ function buttonWith(element, label) {
 
 test('the shipped client half registers a Settings section and renders driver and config controls', async () => {
   const page = await evaluate()
-  assert.deepEqual([...page.namespace.inject].sort(), ['configForms', 'locale', 'slots'])
+  assert.deepEqual([...page.namespace.inject].sort(), ['configForms', 'locale', 'remote', 'slots'])
   assert.equal(page.spec.name, 'settings.section')
   assert.equal(page.spec.id, 'computer-use-safe-win')
   assert.equal(page.spec.label(), '电脑操控')
@@ -185,7 +201,7 @@ test('the shipped client half registers a Settings section and renders driver an
   assert.match(text, /允许的应用/)
   assert.match(text, /Cua Driver/)
   assert.match(text, /未安装 · 目标版本: 0\.28\.0/)
-  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
+  assert.deepEqual(page.seen.map(call => call.path).sort(), ['/api/computer-use-safe-win/requirements', '/api/computer-use-safe-win/status'])
 })
 
 test('the Settings nav label follows the active locale and English UI is complete', async () => {
@@ -222,9 +238,9 @@ test('persistent GUI settings submit an atomic revision-fenced Host mutation', a
   await submit.props.onSubmit({ preventDefault() {} })
   assert.equal(form.writes.length, 1)
   assert.equal(form.writes[0].expectedRevision, 7)
-  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
-  assert.equal(JSON.parse(page.seen[1].options.body).enabled, true)
-  assert.deepEqual(JSON.parse(page.seen[1].options.body).allowedApps, ['notepad.exe', 'c:\\program files\\app\\app.exe'])
+  assert.deepEqual(page.seen.map(call => call.path).sort(), ['/api/computer-use-safe-win/requirements', '/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
+  assert.equal(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).enabled, true)
+  assert.deepEqual(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).allowedApps, ['notepad.exe', 'c:\\program files\\app\\app.exe'])
   assert.equal(form.writes[0].ops.length, 2)
   assert.equal(form.writes[0].ops[0].path[0], 'allowedApps')
   assert.deepEqual(JSON.parse(JSON.stringify(form.writes[0].ops[0].value)), ['notepad.exe', 'c:\\program files\\app\\app.exe'])
@@ -259,7 +275,7 @@ test('opening settings checks driver status and refresh gives visible feedback',
   assert.match(text, /Refresh driver status/)
   assert.match(text, /Not installed/)
   assert.match(text, /0\.28\.0/)
-  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
+  assert.deepEqual(page.seen.map(call => call.path).sort(), ['/api/computer-use-safe-win/requirements', '/api/computer-use-safe-win/status'])
 })
 
 test('the panel is not registered as a Plugins page block any more', async () => {
@@ -289,4 +305,27 @@ test('a refused installation surfaces the Host error without claiming success', 
   await page.render()
   await page.press(await page.render(), 'Install driver')
   assert.match(textOf(await page.render()), /local authenticated browser/)
+})
+
+test('a missing prerequisite is explained and installable through the Host plugin manager', async () => {
+  const page = await evaluate({ requirements: registryMissing, withManager: true, respond: async () => absent })
+  await page.render()
+  const text = textOf(await page.render())
+  assert.match(text, /缺少前置组件/)
+  assert.match(text, /@deepseek-ai\/dsh-computer-use/)
+  await page.press(await page.render(), '安装前置组件')
+  assert.deepEqual(page.installs, [REQUIRED_PACKAGE])
+  assert.match(textOf(await page.render()), /请重启 DSH/)
+})
+
+test('an installed prerequisite shows no install prompt, and one without the manager only explains', async () => {
+  const ready = await evaluate({ requirements: registryReady, respond: async () => absent })
+  await ready.render()
+  assert.doesNotMatch(textOf(await ready.render()), /安装前置组件/)
+
+  const noManager = await evaluate({ requirements: registryMissing, withManager: false, respond: async () => absent })
+  await noManager.render()
+  assert.match(textOf(await noManager.render()), /@deepseek-ai\/dsh-computer-use/)
+  assert.doesNotMatch(textOf(await noManager.render()), /安装前置组件/)
+  assert.equal(noManager.installs.length, 0)
 })

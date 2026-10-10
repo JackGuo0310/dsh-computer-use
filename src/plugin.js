@@ -5,16 +5,25 @@ import { projectionApplies, projectScreenshots, storeScreenshots } from './scree
 import { SettingsSchema, validateSettingsConfig, validateSettingsDraft } from './settings-validation.js'
 
 export const name = 'computer-use-safe-win'
-// `computerUse` is the shared exclusive registration the provider takes; it is
-// injected because the provider now mounts even while observation is disabled,
-// so that enabling it takes effect on the next call instead of on a restart.
-// `configForms` must stay out of this list: it is a browser service owned by
-// `@deepseek-ai/dsh-ui-settings` and can never exist in the Host process.
+// `connection` is the authenticated API channel. `computerUse` is the exclusive
+// provider registry from `@deepseek-ai/dsh-computer-use`; requiring it keeps two
+// desktop-control providers from running at once, and the settings panel
+// offers to install it. `configForms` must stay out of this list: it is a
+// browser service owned by `@deepseek-ai/dsh-ui-settings` and can never exist
+// in the Host process, and declaring it left this plugin pending forever.
 export const inject = ['connection', 'computerUse']
 export const Config = SettingsSchema
 export const validateConfig = validateSettingsConfig
 
 const PROVIDER = 'safe-win'
+/**
+ * The package that provides the exclusive computer-use provider registry.
+ *
+ * This plugin cannot start without it, and it is an ordinary public plugin, so
+ * the settings panel offers to install it through the Host's own plugin manager
+ * rather than leaving the person with a `pending` entry and no explanation.
+ */
+export const REQUIRED_PACKAGE = '@deepseek-ai/dsh-computer-use'
 const CHILD = 'computer-use-safe-win.runtime'
 const GUIDANCE = [
   'This computer-use provider can inspect only configured Windows executable filenames.',
@@ -97,6 +106,8 @@ export async function startSafeWinProvider(ctx, { readSettings, startRuntime }) 
   }
 
   const dispose = ctx.effect(function* () {
+    // The shared registry keeps a second computer-use provider from taking the
+    // desktop while this one holds it.
     yield ctx.computerUse.register(PROVIDER)
     ctx.on('internal/plugin', fiber => {
       if (fiber === ctx.fiber && fiber.uid === null) lifetime.abort(new Error('plugin unloading'))
@@ -255,6 +266,15 @@ export async function apply(ctx, config) {
       }
     },
   }), 'computer-use-safe-win: running applications')
+  // The settings panel must know whether the exclusive provider registry is
+  // present, because this plugin cannot activate without it. The browser half
+  // reads this to decide whether to offer the install action.
+  ctx.effect(() => ctx.connection.fetch.register({
+    path: '/api/computer-use-safe-win/requirements',
+    methods: ['GET'],
+    requestBody: 'buffered',
+    fetch: async () => jsonResponse({ computerUseRegistry: ctx.get?.('computerUse') !== undefined, package: REQUIRED_PACKAGE }),
+  }), 'computer-use-safe-win: requirements')
   await startSafeWinProvider(ctx, {
     readSettings: () => resolveObservationConfig(config),
     startRuntime: signal => startCuaRuntime({ signal }),

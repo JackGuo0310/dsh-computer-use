@@ -50,7 +50,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.5
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.6
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
@@ -146,7 +146,22 @@ v0.1.4 发布后在真实 DSH 里启动即挂起、设置面板空白。根因�
 3. **`@deepseek-ai/schemastery` 没有声明为依赖**。`src/settings-validation.js` 需要它，但安装后的插件无法解析（`Cannot find package`）。它是宿主自身也当作普通运行时依赖的校验库，不含 DSH 运行时 Symbol，因此不违反「不引入宿主运行时包」的约束（三条隔离测试仍通过）。
 4. **`verify:install` 的清理会掩盖真实失败**。原生 addon 载入后 Windows 拒绝 unlink，`finally` 里的 `rm` 抛错会顶替掉真正的错误信息——正是它掩盖了上面第 3 条。
 
-**升级**：把插件地址改成 `#v0.1.5`，然后重新启用观察并保存一次白名单。
+**升级**：把插件地址改成 `#v0.1.6`，然后重新启用观察并保存一次白名单。
+
+### 0.1.5 → 0.1.6（前置依赖可一键安装）
+
+v0.1.5 修好了启动挂起，但暴露出真正的根因：**本插件需要 `@deepseek-ai/dsh-computer-use`**，它提供「同一时刻只允许一个电脑操控提供者」的独占注册表。没有它，插件会一直停在 `pending (waiting for service: computerUse)`。
+
+这个包自 v0.1.3 起就在被调用，只是从没在你的 profile 里装过——所以宿主半**从 v0.1.3 到现在都没有真正激活过**。
+
+本版不要求你手动去装：
+
+- 设置侧栏「电脑操控」顶部显示「缺少前置组件」并说明原因
+- 提供**「安装前置组件」**按钮，点击后二次确认，通过 DSH 自己的插件管理器安装（不直接改 profile 文件，避免和插件管理器抢写）
+- 已装则不显示该提示；没有插件管理器客户端半时只说明、不给出无效按钮
+- 装完**需要重启 DSH**
+
+前置依赖沿用 DSH 官方 Cua computer-use 包的做法：`inject: ['connection', 'computerUse']`，只按服务名取注册表、不 import 宿主包，因此不会引入副本。
 
 ## 许可证
 
