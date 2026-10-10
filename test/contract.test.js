@@ -14,10 +14,15 @@ test('the Cua adapter uses only the SDK-managed private worker topology', async 
   assert.doesNotMatch(source, /callTool\s*\(/)
 })
 
-test('the adapter resolves allowlisted executables through the shared policy', async () => {
+test('the adapter can deliver input only as a background element click', async () => {
   const source = await readFile(adapterPath, 'utf8')
-  assert.match(source, /executableFromLaunchPath/)
-  assert.doesNotMatch(source, /\\\\\.exe/)
+  // Foreground delivery and raw coordinates are the two ways an action could
+  // escape the window the user approved, so neither may appear in the adapter.
+  assert.match(source, /deliveryMode: InputDeliveryMode\.Background/)
+  assert.doesNotMatch(source, /InputDeliveryMode\.Foreground/)
+  assert.match(source, /new ClickPosition\.Element\(/)
+  assert.doesNotMatch(source, /ClickPosition\.Coordinates/)
+  assert.doesNotMatch(source, /ActionTarget\.Desktop/)
 })
 
 test('the plugin exposes only curated listing and observation tools', async () => {

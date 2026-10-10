@@ -5,13 +5,45 @@ import { ACTION_TIMEOUT_MS, OperationQueue, withTimeout } from './operation-queu
 import { executableFromLaunchPath } from './policy.js'
 import { MAX_ELEMENTS, projectSnapshot } from './snapshot-policy.js'
 import {
+  ActionTarget,
+  ClickButton,
+  ClickPosition,
   CuaDriver,
+  InputDeliveryMode,
 } from '@trycua/cua-driver'
 
+const ACTION_EFFECT = ['confirmed', 'partial', 'unverifiable', 'suspected-noop', 'refused']
+const ACTION_ROUTE = ['accessibility', 'synthetic-events', 'global-input', 'system-api', 'dom', 'trusted-input']
+const DELIVERY_MODE = ['background', 'foreground', 'not-applicable', 'unknown']
+
 function assertDriver(driver) {
-  for (const method of ['listApps', 'listWindows', 'getWindowState', 'verifyState', 'shutdown']) {
+  for (const method of ['listApps', 'listWindows', 'getWindowState', 'click', 'verifyState', 'shutdown']) {
     if (typeof driver?.[method] !== 'function') throw new Error(`Cua Driver runtime lacks ${method}`)
   }
+}
+
+/**
+ * Name the driver's own action outcome instead of trusting a bare success.
+ *
+ * An unrecognized enum value is refused rather than reported as success, so a
+ * driver that grows a new effect cannot be read as confirmation.
+ *
+ * @param result - Raw `ActionResult` from the driver.
+ * @returns Frozen named outcome for the tool layer.
+ */
+export function projectActionResult(result) {
+  const effect = ACTION_EFFECT[result?.effect]
+  const route = ACTION_ROUTE[result?.route]
+  if (effect === undefined || route === undefined) throw new Error('Cua returned an unrecognized action result')
+  return Object.freeze({
+    effect,
+    route,
+    delivery: result.delivery === undefined ? undefined : Object.freeze({
+      mode: DELIVERY_MODE[result.delivery.mode] ?? 'unknown',
+      ...result.delivery.deliveredCount === undefined ? {} : { deliveredCount: result.delivery.deliveredCount },
+    }),
+    evidenceCount: Array.isArray(result.evidence) ? result.evidence.length : 0,
+  })
 }
 
 /**
@@ -112,6 +144,37 @@ export class CuaRuntime {
         maxDimension: 4096,
       })
       return Object.freeze({ target: current, ...projectSnapshot(state, target, { includeScreenshot }) })
+    }, signal)
+  }
+
+  /**
+   * Deliver one semantic click to an element of a freshly observed target window.
+   *
+   * Delivery is hard-coded to `InputDeliveryMode.Background` and the position to an
+   * element token: this method accepts no foreground mode and no raw coordinates,
+   * so a caller cannot silently switch coordinate spaces or raise a window. The
+   * window identity is re-read immediately before the click. The driver's own
+   * `ActionResult` is projected and returned; the caller decides what an
+   * unconfirmed effect means, and must never retry by escalating.
+   *
+   * @param target - Frozen window identity from a fresh listing.
+   * @param elementToken - Token from a snapshot of that same window.
+   * @param signal - Optional abort signal.
+   * @returns Projected action result with effect, route, and delivery status.
+   */
+  click(target, elementToken, signal) {
+    if (typeof elementToken !== 'string' || !elementToken || elementToken.length > 1024) return Promise.reject(new Error('invalid Cua element token'))
+    return this.#enqueue(async () => {
+      const current = await this.#window(target.pid, target.windowId)
+      if (current.app !== target.app || current.title !== target.title || !current.isOnScreen || current.minimized) throw new Error('Cua window identity changed before action')
+      const result = await this.#driver.click({
+        target: new ActionTarget.Window({ pid: target.pid, windowId: target.windowId }),
+        position: new ClickPosition.Element({ elementToken }),
+        deliveryMode: InputDeliveryMode.Background,
+        button: ClickButton.Left,
+        count: 1,
+      })
+      return projectActionResult(result)
     }, signal)
   }
 
