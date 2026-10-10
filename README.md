@@ -54,7 +54,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.13
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.14
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「刷新驱动状态」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。独占注册表 `@deepseek-ai/dsh-computer-use` 是可选的，挂载方法见 0.1.10 一节。
@@ -215,7 +215,7 @@ v0.1.9 之后仍有两个真实缺陷：
 
 **为什么不做成一键安装**：DSH 的 Host 插件管理器只激活带 bundle patch 的包，`installBundle` 会把无 patch 的安装回滚；而插件本身**不得**写 profile 的文件（`dependencies`/`bundles`/patch 层都由插件管理器或用户掌握）。所以正确的做法是给出准确命令，由用户执行。
 
-**版本不写死**：Host 半从运行中的 Harness 入口脚本向上找到 `@deepseek-ai/dsh` 的 manifest 读出真实版本（例如 `0.2.1-alpha.1`），再从 npm 取该包的已发布版本，选**同一 core 版本**里最新的一个（`0.2.1-alpha.2`）。npm 不可达时命令退化为不带版本号的 `@deepseek-ai/dsh-computer-use`，不会凭空编造版本。命令里的 profile 名与配置文件路径来自 `DSH_PROFILE`/`DSH_PROFILE_DIR`，因此不同 profile 直接可用。
+**版本不写死**：Host 半从运行中的 Harness 入口脚本向上找到 `@deepseek-ai/dsh` 的 manifest 读出真实版本（例如 `0.2.1-alpha.1`），再去 npm 取该包的已发布版本，**优先选与运行版本完全相同的那个**（0.1.14 起；见下一节说明为什么不能取同版本线的更新构建）。npm 不可达时命令退化为不带版本号的 `@deepseek-ai/dsh-computer-use`，不会凭空编造版本。命令里的 profile 名与配置文件路径来自 `DSH_PROFILE`/`DSH_PROFILE_DIR`，因此不同 profile 直接可用。
 
 **升级步骤**：改地址为 `#v0.1.12` → 浏览器硬刷新。若确实需要严格互斥，按面板给出的两条命令执行；不需要就忽略这张卡片。
 
@@ -224,6 +224,19 @@ v0.1.9 之后仍有两个真实缺陷：
 0.1.12 在 `/registry-setup` 请求失败时什么都不显示——看起来就像「卡片里没有命令」，无法判断是 Host 半过期还是别的错误。本版把失败原因显式显示在卡片里，并附一条通用的可复制命令（profile 名处为占位符），因此即使 Host 半还没加载到新路由，用户也仍然拿到可用指令。
 
 **升级步骤**：改地址为 `#v0.1.13` → 浏览器硬刷新。若卡片里出现「无法读取挂载步骤: …」，说明 Host 半仍是旧代码，再重启一次 DSH。
+
+### 0.1.13 → 0.1.14（注册表版本必须与 DSH 完全同版本）
+
+0.1.12/0.1.13 选的是「同 core 版本线里最新的构建」，这在 DSH 这套版本体系里是**错的**：注册表包把自己的构建与 `@deepseek-ai/dsh-brand` 锁成同版本——
+
+| 注册表包 | 要求的 `dsh-brand` | 本机 DSH `0.2.1-alpha.1` 自带的 brand |
+| --- | --- | --- |
+| `0.2.1-alpha.1` | `0.2.1-alpha.1` | `0.2.1-alpha.1` ✅ |
+| `0.2.1-alpha.2` | `0.2.1-alpha.2` | 不匹配 ❌（pnpm 会再装一份 brand） |
+
+所以现在**优先选与运行 DSH 完全相同的版本**；只有当该版本没有发布时，才退回到同版本线里最新的构建，并且面板会明确提示「未发布与当前 DSH 完全同版本的构建，这里取同版本线最新；它可能要求不同的 dsh-brand」。
+
+**升级步骤**：改地址为 `#v0.1.14` → 浏览器硬刷新。卡片里的命令应变成 `…@0.2.1-alpha.1`（与你的 DSH 一致）。
 
 ## 许可证
 

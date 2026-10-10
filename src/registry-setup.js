@@ -61,10 +61,16 @@ function comparePrerelease(left, right) {
 }
 
 /**
- * The newest published registry version that shares the running Harness's core.
+ * The published registry version that pairs with the running Harness.
  *
- * A Harness `0.2.1-alpha.1` therefore resolves to `0.2.1-alpha.2`, not to a
- * different release line and not to a hardcoded string.
+ * The registry is released in lockstep with the Harness and pins it as a peer:
+ * `@deepseek-ai/dsh-computer-use@0.2.1-alpha.1` requires
+ * `@deepseek-ai/dsh-brand@0.2.1-alpha.1`, which is exactly the brand a Harness
+ * `0.2.1-alpha.1` already carries. Taking a newer build of the same release line
+ * would demand a brand the profile does not have — pnpm would then install a
+ * second copy of a Host package. So the exact running version wins whenever it
+ * is published, and only an unpublished exact version falls back to the newest
+ * sibling of the same core (reported as inexact by {@link registryPlan}).
  *
  * @param dshVersion - Version of the running Harness, or undefined.
  * @param published - Published registry versions.
@@ -73,6 +79,8 @@ function comparePrerelease(left, right) {
 export function matchingVersion(dshVersion, published) {
   const running = parseVersion(dshVersion ?? '')
   if (running === undefined) return undefined
+  const exact = running.prerelease.length === 0 ? running.core : `${running.core}-${running.prerelease.join('.')}`
+  if (published.includes(exact)) return exact
   let best
   for (const candidate of published) {
     const parsed = parseVersion(candidate)
@@ -87,7 +95,7 @@ export function matchingVersion(dshVersion, published) {
  * The two commands that mount the registry in this profile.
  *
  * @param options - Harness version, profile name, and the published versions.
- * @returns The resolved spec plus the copy-ready installation and patch text.
+ * @returns The resolved spec, whether it is the exact Harness version, and the copy-ready texts.
  */
 export function registryPlan({ dshVersion, profile, published }) {
   const version = matchingVersion(dshVersion, published)
@@ -97,6 +105,7 @@ export function registryPlan({ dshVersion, profile, published }) {
     profile,
     dshVersion: dshVersion ?? null,
     version: version ?? null,
+    exact: version !== undefined && version === dshVersion,
     spec,
     command: `dsh plugin --profile ${profile} add ${spec}`,
     patch: `- insert:\n    - id: computer-use\n      name: '${REGISTRY_PACKAGE}'`,

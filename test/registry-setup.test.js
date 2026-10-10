@@ -22,9 +22,12 @@ test('a version splits into its release core and prerelease identifiers', () => 
   assert.equal(parseVersion(''), undefined)
 })
 
-test('the registry matches the running Harness core instead of a pinned version', () => {
-  assert.equal(matchingVersion('0.2.1-alpha.1', published), '0.2.1-alpha.2', 'same core, newest prerelease')
+test('the registry pairs with the exact running Harness version, never a newer build of the line', () => {
+  // The package pins `@deepseek-ai/dsh-brand` to its own version, so a newer
+  // sibling would demand a brand this profile does not carry.
+  assert.equal(matchingVersion('0.2.1-alpha.1', published), '0.2.1-alpha.1', 'the exact build wins')
   assert.equal(matchingVersion('0.2.0-rc.2', published), '0.2.0-rc.2', 'an exact published version wins over its siblings')
+  assert.equal(matchingVersion('0.2.1-alpha.3', published), '0.2.1-alpha.2', 'an unpublished exact version falls back within its line')
   assert.equal(matchingVersion('0.2.1', published), '0.2.1-alpha.2', 'a release core still takes its newest prerelease')
   assert.equal(matchingVersion('9.9.9', published), undefined, 'no other release line is offered')
   assert.equal(matchingVersion(undefined, published), undefined)
@@ -39,10 +42,17 @@ test('a prerelease sorts below its release and numerically within its identifier
 
 test('the plan carries the copy-ready command and patch row for this profile', () => {
   const plan = registryPlan({ dshVersion: '0.2.1-alpha.1', profile: 'web', published })
-  assert.equal(plan.spec, `${REGISTRY_PACKAGE}@0.2.1-alpha.2`)
-  assert.equal(plan.command, `dsh plugin --profile web add ${REGISTRY_PACKAGE}@0.2.1-alpha.2`)
+  assert.equal(plan.spec, `${REGISTRY_PACKAGE}@0.2.1-alpha.1`)
+  assert.equal(plan.command, `dsh plugin --profile web add ${REGISTRY_PACKAGE}@0.2.1-alpha.1`)
   assert.equal(plan.patch, `- insert:\n    - id: computer-use\n      name: '${REGISTRY_PACKAGE}'`)
+  assert.equal(plan.version, '0.2.1-alpha.1')
+  assert.equal(plan.exact, true)
+})
+
+test('a plan without an exact published build is reported as inexact', () => {
+  const plan = registryPlan({ dshVersion: '0.2.1-alpha.3', profile: 'web', published })
   assert.equal(plan.version, '0.2.1-alpha.2')
+  assert.equal(plan.exact, false, 'the panel must be able to warn about a brand mismatch')
 })
 
 test('an unresolvable version still yields a runnable command', () => {

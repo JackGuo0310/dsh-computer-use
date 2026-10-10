@@ -17,9 +17,10 @@ const registrySetup = {
   package: REQUIRED_PACKAGE,
   profile: 'web',
   dshVersion: '0.2.1-alpha.1',
-  version: '0.2.1-alpha.2',
-  spec: `${REQUIRED_PACKAGE}@0.2.1-alpha.2`,
-  command: `dsh plugin --profile web add ${REQUIRED_PACKAGE}@0.2.1-alpha.2`,
+  version: '0.2.1-alpha.1',
+  exact: true,
+  spec: `${REQUIRED_PACKAGE}@0.2.1-alpha.1`,
+  command: `dsh plugin --profile web add ${REQUIRED_PACKAGE}@0.2.1-alpha.1`,
   patch: `- insert:\n    - id: computer-use\n      name: '${REQUIRED_PACKAGE}'`,
 }
 /** Shape the Host plugin manager returns from `listBundles()`. */
@@ -439,15 +440,26 @@ test('the panel still explains a missing registry while the Host config form is 
 test('a missing registry offers the two copy-ready mounting steps', async () => {
   const page = await evaluate({ registry: registryMissing, respond: async () => absent })
   const text = textOf(await page.render())
-  assert.match(text, /dsh plugin --profile web add @deepseek-ai\/dsh-computer-use@0\.2\.1-alpha\.2/)
+  assert.match(text, /dsh plugin --profile web add @deepseek-ai\/dsh-computer-use@0\.2\.1-alpha\.1/)
   assert.match(text, /cordis\.patch\.yml/)
   assert.match(text, /DSH 0\.2\.1-alpha\.1/)
+  assert.doesNotMatch(text, /未发布与当前 DSH 完全同版本/, 'an exact pairing needs no warning')
   const copyButtons = findElements(await page.render(), node => node.type === 'button' && node.children[0] === '复制')
   assert.equal(copyButtons.length, 2, 'one copy button per mounting step')
   await copyButtons[0].props.onClick()
   await copyButtons[1].props.onClick()
   assert.deepEqual(page.clipboard.written, [registrySetup.command, registrySetup.patch])
   assert.match(textOf(await page.render()), /已复制/)
+})
+
+test('a fallback build of the same line is shown with its brand warning', async () => {
+  const page = await evaluate({
+    registry: registryMissing,
+    setup: { ...registrySetup, version: '0.2.1-alpha.2', spec: `${REQUIRED_PACKAGE}@0.2.1-alpha.2`, exact: false },
+  })
+  const text = textOf(await page.render())
+  assert.match(text, /@deepseek-ai\/dsh-computer-use@0\.2\.1-alpha\.2/)
+  assert.match(text, /未发布与当前 DSH 完全同版本的构建/)
 })
 
 test('an unanswered setup route reports the reason and still offers a runnable command', async () => {
