@@ -31,7 +31,7 @@ class StubRuntime {
   async close() { this.closed = true }
 }
 
-function harness() {
+function harness({ attachments } = {}) {
   const ctx = new Context()
   const state = { provider: null, tools: new Map(), sections: [], released: 0 }
   ctx.provide('computerUse', { register(name) {
@@ -45,6 +45,8 @@ function harness() {
     return () => state.tools.delete(definition.name)
   } })
   ctx.provide('systemPrompt', { section(value) { state.sections.push(value); return () => {} }, getSectionOrder: () => 5 })
+  // The Host owns the durable image store; the plugin reaches it by name only.
+  if (attachments !== undefined) ctx.provide('attachments', attachments)
   return { ctx, state }
 }
 
@@ -146,16 +148,35 @@ test('observe rechecks listing and removes Cua control tokens', async () => {
   assert.equal('token' in result.elements[0], false)
   assert.equal('observationId' in result, false)
   assert.equal(result.treeMarkdown, 'Button: Next')
-  assert.deepEqual(result.screenshot, [])
+  assert.deepEqual(result.screenshots, [])
   assert.deepEqual(provider.runtime().calls, ['list', 'observe'])
   await provider.dispose()
 })
 
-test('screenshot requests fail closed until DSH image delivery is verified', async () => {
+test('a screenshot becomes a durable reference, never bytes in the result', async () => {
+  const h = harness({ attachments: { saveImages: async inputs => inputs.map(input => ({ attachmentId: `ref-${input.mediaType}-${input.data.length}`, mediaType: input.mediaType, bytes: input.data.length, width: 2, height: 2 })) } })
+  const provider = await start(h, async () => Object.assign(new StubRuntime(), { observe: async (window, options) => ({ target: window, snapshotId: 'shot-1', treeMarkdown: 'Edit', elements: [], truncated: false, images: options.includeScreenshot ? [{ mimeType: 'image/png', data: Buffer.from([1, 2, 3, 4]) }] : [] }) }))
+  const execution = exec('safe_win_observe')
+  const result = await tool(h.state, 'safe_win_observe').execute({ windowId: '4242', pid: 1234, screenshot: true }, execution)
+  assert.deepEqual(result.screenshots, [{ attachment: { attachmentId: 'ref-image/png-4', mediaType: 'image/png', bytes: 4, width: 2, height: 2 }, mediaType: 'image/png', bytes: 4, width: 2, height: 2 }])
+  // Image bytes must not survive anywhere in the canonical value or its text.
+  assert.equal(JSON.stringify(result).includes('[1,2,3,4]'), false)
+
+  const observed = tool(h.state, 'safe_win_observe')
+  const projected = observed.projectContent(execution, { isError: false, value: result, content: [] })
+  assert.equal(projected[0].type, 'text')
+  assert.deepEqual(projected.slice(1).map(block => block.type), ['image'])
+  assert.equal(projected[1].attachment.attachmentId, 'ref-image/png-4')
+  await provider.dispose()
+})
+
+test('a screenshot without a durable image store fails closed and starts no work', async () => {
   const h = harness()
-  const provider = await start(h)
-  await assert.rejects(tool(h.state, 'safe_win_observe').execute({ windowId: '4242', pid: 1234, screenshot: true }, exec('safe_win_observe')), /delivery is not verified/)
-  assert.equal(provider.starts(), 0)
+  const provider = await start(h, async () => Object.assign(new StubRuntime(), { observe: async (window, options) => ({ target: window, snapshotId: 'shot-1', treeMarkdown: 'Edit', elements: [], truncated: false, images: options.includeScreenshot ? [{ mimeType: 'image/png', data: Buffer.from([1, 2, 3, 4]) }] : [] }) }))
+  await assert.rejects(
+    tool(h.state, 'safe_win_observe').execute({ windowId: '4242', pid: 1234, screenshot: true }, exec('safe_win_observe')),
+    /requires a durable image attachment service/,
+  )
   await provider.dispose()
 })
 

@@ -99,11 +99,28 @@ export class ToolArgsError extends Error {
 /**
  * Define one tool the registry accepts, compiling and validating parameters the
  * way the host's `defineTool()` does.
+ *
+ * `projectContent` mirrors the host hook of the same name: it runs once per
+ * successful call, after the canonical value has been produced, and may return
+ * replacement content blocks. The observation tools use it to add durable image
+ * blocks beside the rendered text without putting image bytes in the canonical
+ * JSON value.
+ *
+ * @param options.name - Model-facing tool name.
+ * @param options.description - Model-facing description.
+ * @param options.parameters - Author-facing parameter spec.
+ * @param options.output - Canonical schema plus the text renderer.
+ * @param options.execute - Tool body.
+ * @param options.projectContent - Optional content projection.
+ * @returns The registry definition.
  */
-export function defineTool({ name, description, parameters, output, execute }) {
+export function defineTool({ name, description, parameters, output, execute, projectContent }) {
   if (typeof name !== 'string' || !name) throw new Error('defineTool(): a tool name is required')
   if (!output || typeof output !== 'object' || typeof output.render !== 'function') {
     throw new Error(`defineTool(${name}): output must declare { schema, render }`)
+  }
+  if (projectContent !== undefined && typeof projectContent !== 'function') {
+    throw new Error(`defineTool(${name}): projectContent must be a function`)
   }
   const compiled = parametersToJsonSchema(parameters)
   return {
@@ -111,6 +128,7 @@ export function defineTool({ name, description, parameters, output, execute }) {
     description,
     parameters: compiled,
     output,
+    ...projectContent === undefined ? {} : { projectContent },
     async execute(args, exec) {
       const violations = validateArgs(compiled, args)
       if (violations.length > 0) throw new ToolArgsError(violations)
