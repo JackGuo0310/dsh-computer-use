@@ -17,7 +17,6 @@
  */
 
 import {
-  EmbeddedEnvironmentVariable,
   PrivateWorkerOptions,
   RuntimeAuthorizationOptions,
   SessionPermissionMode,
@@ -40,6 +39,11 @@ export const AUTHORIZATION_MAX_IDLE_TTL_SECONDS = 300n
  * no unrestricted acknowledgement, so neither this plugin nor a compromised
  * caller can escalate the worker to bounded-manifest or unrestricted modes.
  *
+ * The environment is empty on purpose. The worker accepts only variables on its
+ * own private-worker safe allowlist and refuses the whole configuration
+ * otherwise (`environment variable RUST_LOG is not in the private-worker safe
+ * allowlist`), so the plugin passes no variables and inherits nothing.
+ *
  * @param binaryPath - Absolute path to the managed `cua-driver.exe`.
  * @returns The SDK record to pass to the private-worker factory.
  */
@@ -60,7 +64,7 @@ export function buildPrivateWorkerOptions(binaryPath) {
       claudeCodeCompatibility: false,
       authorization,
     },
-    environment: [EmbeddedEnvironmentVariable.create({ key: 'RUST_LOG', value: 'warn' })],
+    environment: [],
     inheritStderr: false,
   })
 }

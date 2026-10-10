@@ -10,13 +10,23 @@ import {
 
 const options = buildPrivateWorkerOptions('C:\\managed\\cua-driver.exe')
 
-test('worker options carry every field the worker reads', () => {
+test('worker options carry every field the worker reads, at every level', () => {
   // These are the only fields the worker consumes; a misspelled key would be
-  // kept as an extra field and the real option would stay at its default.
+  // kept as an extra field and the real option would stay at its default. The
+  // nested records are checked the same way, because a wrong key there produced
+  // an `undefined` field the FFI writer then refused to serialize at startup.
   assert.deepEqual(Object.keys(options).sort(), [
     'binaryPath', 'configuredDriver', 'environment', 'hostBundleId',
     'inheritStderr', 'shutdownTimeoutMs', 'startupTimeoutMs',
   ])
+  assert.deepEqual(Object.keys(options.configuredDriver).sort(), ['authorization', 'claudeCodeCompatibility'])
+  assert.deepEqual(Object.keys(options.configuredDriver.authorization).sort(), [
+    'allowedModes', 'compatibilityCapabilityManifestPath', 'compatibilityMode',
+    'maxIdleTtlSeconds', 'maxSessionTtlSeconds', 'unrestrictedAcknowledged',
+  ])
+  // The SDK's own defaults contribute that undefined optional path; a bounded
+  // compatibility mode is what would require it, and this plugin never sets one.
+  assert.equal(options.configuredDriver.authorization.compatibilityCapabilityManifestPath, undefined)
   assert.equal(options.binaryPath, 'C:\\managed\\cua-driver.exe')
   assert.equal(options.hostBundleId, HOST_BUNDLE_ID)
   assert.equal(options.startupTimeoutMs, BigInt(STARTUP_TIMEOUT_MS))
@@ -34,8 +44,10 @@ test('the authorization ceiling is Standard-only and not unrestricted', () => {
   assert.equal(options.configuredDriver.claudeCodeCompatibility, false)
 })
 
-test('the worker environment is an explicit allowlist, not the host environment', () => {
-  assert.deepEqual(options.environment.map(entry => ({ ...entry })), [{ key: 'RUST_LOG', value: 'warn' }])
+test('no environment variable is embedded, because the worker refuses unlisted ones', () => {
+  // Passing RUST_LOG made the worker reject the whole configuration with
+  // `environment variable RUST_LOG is not in the private-worker safe allowlist`.
+  assert.deepEqual([...options.environment], [])
 })
 
 test('the SDK record factories accept wrong types, so these assertions are the only guard', async () => {
