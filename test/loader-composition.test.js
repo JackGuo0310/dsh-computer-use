@@ -30,7 +30,7 @@ async function boot({ allowedApps = ['notepad.exe'], runtimeFactory } = {}) {
     name: 'computer-use-safe-win-test-adapter',
     inject: ['computerUse', 'tools', 'systemPrompt'],
     apply: async ctx => Plugin.startSafeWinProvider(ctx, {
-      allowedApps: configuredApps(allowedApps),
+      readSettings: () => ({ enabled: true, allowedApps }),
       startRuntime: async signal => {
         signal.throwIfAborted()
         runtime = runtimeFactory ? await runtimeFactory() : {

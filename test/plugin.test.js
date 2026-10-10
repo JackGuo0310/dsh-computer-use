@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
 import { startSafeWinProvider } from '../src/plugin.js'
 
-const allowedApps = new Set(['notepad.exe'])
 const target = {
   windowId: 4242n, pid: 1234, app: 'notepad.exe', title: 'Untitled - Notepad',
   bounds: { x: 0, y: 0, width: 900, height: 700 }, isOnScreen: true, minimized: false,
@@ -17,7 +16,6 @@ class StubRuntime {
     signal?.throwIfAborted()
     this.calls.push('list')
     if (this.fail) throw new Error('Cua runtime failure')
-    assert.ok(apps.has('notepad.exe'))
     return [target]
   }
   async observe(window, { signal } = {}) {
@@ -58,26 +56,76 @@ function tool(state, name) {
   assert.ok(value, `${name} should be registered`)
   return value
 }
-async function start(h, factory = async () => new StubRuntime()) {
-  let runtime
-  await startSafeWinProvider(h.ctx, { allowedApps, startRuntime: async signal => {
-    runtime = await factory(signal)
-    return runtime
-  } })
-  return { dispose: () => h.ctx.fiber.dispose(), runtime: () => runtime }
+/** The provider reads live settings per call; tests supply one fixed state. */
+function settings(allowedApps = ['notepad.exe'], enabled = true) {
+  return () => ({ enabled, allowedApps })
 }
 
-test('startup registers only inspection tools and no desktop enumeration', async () => {
+/** The provider reads live settings per call; tests mutate this holder in place. */
+function liveSettings(enabled = true, allowedApps = ['notepad.exe']) {
+  return { enabled, allowedApps }
+}
+
+async function start(h, factory = async () => new StubRuntime(), live = liveSettings()) {
+  let runtime
+  let starts = 0
+  await startSafeWinProvider(h.ctx, {
+    readSettings: () => ({ enabled: live.enabled, allowedApps: [...live.allowedApps] }),
+    startRuntime: async signal => {
+      starts += 1
+      runtime = await factory(signal)
+      return runtime
+    },
+  })
+  return { dispose: () => h.ctx.fiber.dispose(), runtime: () => runtime, starts: () => starts, live }
+}
+
+test('startup registers only inspection tools and starts no worker', async () => {
   const h = harness()
   const provider = await start(h)
   assert.equal(h.state.provider, 'safe-win')
   assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe'])
   assert.equal(h.state.sections.length, 1)
-  assert.deepEqual(provider.runtime().calls, [], 'runtime startup must not enumerate desktop state')
+  assert.equal(provider.starts(), 0, 'mounting the provider must not start or enumerate the desktop')
+  assert.equal(provider.runtime(), undefined)
   await provider.dispose()
-  assert.equal(provider.runtime().closed, true)
   assert.equal(h.state.provider, null)
   assert.equal(h.state.tools.size, 0)
+})
+
+test('the allowlist is read per call, so an edit applies to the next call', async () => {
+  const h = harness()
+  const provider = await start(h)
+  const first = await tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows'))
+  assert.equal(first.windows.length, 1)
+  provider.live.allowedApps = ['other.exe']
+  await assert.rejects(tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows')), /outside the allowlist/)
+  assert.equal(provider.starts(), 1, 'the worker is started once and reused')
+  await provider.dispose()
+})
+
+test('disabling observation refuses both tools without touching the worker', async () => {
+  const h = harness()
+  const provider = await start(h)
+  provider.live.enabled = false
+  await assert.rejects(tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows')), /observation is disabled/)
+  await assert.rejects(tool(h.state, 'safe_win_observe').execute({ windowId: '4242', pid: 1234, screenshot: false }, exec('safe_win_observe')), /observation is disabled/)
+  assert.equal(provider.starts(), 0)
+  await provider.dispose()
+})
+
+test('an invalid live allowlist keeps the provider mounted and fails calls closed', async () => {
+  for (const allowedApps of [['powershell.exe'], ['Notepad.exe', 'notepad.exe'], Array.from({ length: 65 }, (_, index) => `app${index}.exe`)]) {
+    const h = harness()
+    const provider = await start(h, async () => new StubRuntime(), liveSettings(true, allowedApps))
+    // A bad persisted value must not unmount the settings surface, or the user
+    // could not repair it from the GUI that wrote it.
+    assert.equal(h.state.provider, 'safe-win')
+    assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe'])
+    await assert.rejects(tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows')), /forbidden application|duplicate|64 applications/)
+    assert.equal(provider.starts(), 0, 'no worker may start for a refused allowlist')
+    await provider.dispose()
+  }
 })
 
 test('window discovery emits opaque bigint IDs as exact decimal strings', async () => {
@@ -107,7 +155,7 @@ test('screenshot requests fail closed until DSH image delivery is verified', asy
   const h = harness()
   const provider = await start(h)
   await assert.rejects(tool(h.state, 'safe_win_observe').execute({ windowId: '4242', pid: 1234, screenshot: true }, exec('safe_win_observe')), /delivery is not verified/)
-  assert.deepEqual(provider.runtime().calls, [])
+  assert.equal(provider.starts(), 0)
   await provider.dispose()
 })
 
@@ -115,7 +163,7 @@ test('a window absent from a fresh listing is not observed', async () => {
   const h = harness()
   const provider = await start(h, async () => Object.assign(new StubRuntime(), { listTargets: async () => [] }))
   await assert.rejects(tool(h.state, 'safe_win_observe').execute({ windowId: '4242', pid: 1234, screenshot: false }, exec('safe_win_observe')), /no longer an eligible/)
-  assert.deepEqual(provider.runtime().calls, [])
+  assert.equal(provider.starts(), 1)
   await provider.dispose()
 })
 
@@ -127,49 +175,65 @@ test('no act tool exists while background semantic click behavior is unverified'
   await provider.dispose()
 })
 
-test('runtime startup failure rolls back the provider and tools', async () => {
+test('a failed worker start surfaces on the first call and can be retried', async () => {
   const h = harness()
-  await assert.rejects(startSafeWinProvider(h.ctx, { allowedApps, startRuntime: async () => { throw new Error('worker startup failed') } }), /worker startup failed/)
-  assert.equal(h.state.provider, null)
-  assert.equal(h.state.tools.size, 0)
+  let attempts = 0
+  const provider = await start(h, async () => {
+    attempts += 1
+    if (attempts === 1) throw new Error('worker startup failed')
+    return new StubRuntime()
+  })
+  assert.equal(h.state.provider, 'safe-win', 'the provider stays mounted so the failure is actionable')
+  await assert.rejects(tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows')), /worker startup failed/)
+  const result = await tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows'))
+  assert.equal(result.windows.length, 1, 'a later call retries the start instead of staying broken')
+  assert.equal(attempts, 2)
+  await provider.dispose()
 })
 
-test('a taken provider slot is refused before Cua runtime starts', async () => {
+test('a taken provider slot is refused before any worker starts', async () => {
   const h = harness()
   h.state.provider = 'another-provider'
   let starts = 0
-  await assert.rejects(startSafeWinProvider(h.ctx, { allowedApps, startRuntime: async () => { starts++; return new StubRuntime() } }), /already taken/)
+  await assert.rejects(startSafeWinProvider(h.ctx, {
+    readSettings: () => ({ enabled: true, allowedApps: ['notepad.exe'] }),
+    startRuntime: async () => { starts += 1; return new StubRuntime() },
+  }), /already taken/)
   assert.equal(starts, 0)
 })
 
-test('disposal during startup aborts and does not leak the runtime', async () => {
+test('disposal during a lazy worker start aborts the start and leaks nothing', async () => {
   const h = harness()
   let started
   const starting = new Promise(resolve => { started = resolve })
   let release
   const wait = new Promise(resolve => { release = resolve })
-  const pending = startSafeWinProvider(h.ctx, { allowedApps, startRuntime: async signal => {
+  const provider = await start(h, async signal => {
     started()
     await new Promise((resolve, reject) => {
       signal.addEventListener('abort', () => reject(new Error('startup aborted')), { once: true })
       wait.then(resolve)
     })
     return new StubRuntime()
-  } })
+  })
+  const call = tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows'))
   await starting
-  await h.ctx.fiber.dispose()
+  await provider.dispose()
   release()
-  await assert.rejects(pending, /aborted|unloading/)
+  await assert.rejects(call, /aborted|unloading|disposed/)
   assert.equal(h.state.provider, null)
   assert.equal(h.state.tools.size, 0)
+  assert.equal(provider.runtime(), undefined, 'an aborted start must not retain a runtime')
 })
 
-test('unload aborts queued work and closes runtime before releasing provider', async () => {
+test('unload aborts queued work and closes the worker before releasing the provider', async () => {
   const h = harness()
   const provider = await start(h)
   const list = tool(h.state, 'safe_win_list_windows')
+  await list.execute({}, exec('safe_win_list_windows'))
+  const started = provider.runtime()
   await provider.dispose()
   await assert.rejects(list.execute({}, exec('safe_win_list_windows')), /disposed|unloading|aborted/)
-  assert.equal(provider.runtime().closed, true)
+  assert.equal(started.closed, true, 'a started worker is closed on unload')
   assert.equal(h.state.provider, null)
 })
