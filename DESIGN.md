@@ -6,6 +6,7 @@
 
 - 锁定 `@trycua/cua-driver@0.28.0`；运行时代码选用 SDK-managed private worker。阶段 A 静态证据见 [STAGE-A.md](<STAGE-A.md>)。
 - 插件只开放 `safe_win_list_windows` 和 `safe_win_observe`。动作工具未注册；不发送输入。
+- 串行与取消语义集中在 `src/operation-queue.js`（不 import Cua SDK）：同一 runtime 一次只发一个 driver 调用；超时或 abort 只让调用方停止等待，worker 仍可能在跑该调用，因此被放弃的调用会把 runtime 置为 quarantine，直到 worker 真正报告结束前拒绝新调用，关闭时先在有界预算内 drain 再 shutdown。这条不变量是为将来动作门禁准备的，本身仍不执行动作。
 - 窗口按配置的 executable 文件名白名单过滤；观察绑定到 fresh listing 的 PID 与 bigint window ID，且过滤结果不向模型泄露 element token。
 - 快照的完整性判定与边界投影集中在 `src/snapshot-policy.js`（不 import Cua SDK），因此该部分可在不加载原生插件的进程内测试：拒绝非目标窗口、degraded、静默不完整元素集与失效截图帧，并对 element 数、文本长度与图像字节设上限。显式 `truncated` 仍作为可见信息返回，不冒充完整快照。
 - `safe_win_observe` 的截图选项当前拒绝 `true`，直到 DSH 图像附件/渲染链路得到验证；tree-only 观察使用 `false`。
@@ -24,7 +25,7 @@
 
 ## 能力准入门槛
 
-增加输入动作前，须验证选定 SDK 版本的后台目标语义、delivery 状态与失败/取消行为；通过 DSH 一次性审批，并在审批后重验进程、窗口、快照、目标 token 和 driver generation。拒绝、缺失、取消或目标变化必须拒绝；送达状态模糊时不可重放。当前未满足门槛，因此没有动作工具。
+增加输入动作前，须验证选定 SDK 版本的后台目标语义、delivery 状态与失败/取消行为；通过 DSH 一次性审批，并在审批后重验进程、窗口、快照、目标 token 和 driver generation。拒绝、缺失、取消或目标变化必须拒绝；送达状态模糊时不可重放。当前未满足门槛，因此没有动作工具。取消语义的插件侧前提（一次只跑一个调用、被放弃的调用隔离 runtime、不可自动重放）已由 `src/operation-queue.js` 固化；SDK 侧的送达与取消行为仍未验证。
 
 输出截图前，须核实 DSH 工具运行时（`@deepseek-ai/dsh-tools`）的附件/图片管线并通过真实 Loader 输出测试。当前 JSON/text 适配器不能证明图片能被渲染；插件暂时拒绝截图请求，不宣称可用。
 
@@ -100,6 +101,7 @@ Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必
 - B（观察路径、身份校验、Loader 与生命周期）：已实现并有桌面无关测试；完整打包验证已通过。
 - B.1（设置写入校验与多应用 GUI 往返）：schema 限定 exe 文件名和 64 项上限，Host `validateConfig` 与 apply 均检查危险项、重复项和启用/白名单约束；GUI 按真实换行显示多应用白名单。只完成桌面无关验证，不代表 Remote 权限策略或真实 UI 验收。
 - B.2（快照完整性与投影边界）：把快照判定与边界投影抽到不依赖 Cua SDK 的 `src/snapshot-policy.js` 并加桌面无关测试，拒绝非目标窗口、degraded、静默不完整元素集、失效截图帧与越界 image。仍未验证真实 driver 行为与图像交付。
+- B.3（调用串行化、放弃隔离与 drain）：把执行控制抽到不依赖 Cua SDK 的 `src/operation-queue.js`：超时/取消不再隐含「底层已停」的假设，被放弃的调用隔离 runtime，关闭前有界 drain。仍是观察-only，不代表已满足动作门禁。
 - C（输入动作、审批后重验、结果验证、截图附件）：未完成；动作关闭，图像管线未验证。
 - D（移除旧 helper 链路、测试/配置/文档/打包）：旧产品代码与测试已移除；打包校验覆盖 client/locale/icon 资源。
 - E（最终审阅与本地提交）：前序实现已有本地提交与 tag `mvp-0.1.0`；后续 GUI/配置修订按检查结果单独本地提交，不 push。

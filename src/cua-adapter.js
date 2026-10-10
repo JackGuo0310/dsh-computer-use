@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { getDriverPaths, getDriverStatus } from './driver-install.js'
+import { ACTION_TIMEOUT_MS, OperationQueue, SHUTDOWN_TIMEOUT_MS, withTimeout } from './operation-queue.js'
 import { MAX_ELEMENTS, projectSnapshot } from './snapshot-policy.js'
 import {
   CuaDriver,
@@ -10,31 +11,7 @@ import {
 } from '@trycua/cua-driver'
 
 const HOST_BUNDLE_ID = 'ai.deepseek.dsh.computer-use'
-const ACTION_TIMEOUT_MS = 15_000
 const STARTUP_TIMEOUT_MS = 15_000
-const SHUTDOWN_TIMEOUT_MS = 5_000
-
-function abortError(signal) {
-  return signal.reason instanceof Error ? signal.reason : new Error('operation aborted')
-}
-
-function withTimeout(promise, timeoutMs, label, signal) {
-  let timer
-  let onAbort
-  const guards = [new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs)
-    timer.unref?.()
-    if (signal) {
-      onAbort = () => reject(abortError(signal))
-      if (signal.aborted) onAbort()
-      else signal.addEventListener('abort', onAbort, { once: true })
-    }
-  })]
-  return Promise.race([promise, ...guards]).finally(() => {
-    clearTimeout(timer)
-    if (onAbort) signal.removeEventListener('abort', onAbort)
-  })
-}
 
 function assertDriver(driver) {
   for (const method of ['listApps', 'listWindows', 'getWindowState', 'verifyState', 'shutdown']) {
@@ -89,23 +66,15 @@ export async function startCuaRuntime({ driverFactory = CuaDriver.createPrivateW
 
 export class CuaRuntime {
   #driver
-  #closed = false
-  #tail = Promise.resolve()
-  #generation = Symbol('cua-runtime-generation')
+  #queue = new OperationQueue()
 
   constructor(driver) { this.#driver = driver }
 
-  get generation() { return this.#generation }
+  get generation() { return this.#queue.generation }
 
+  /** One driver call at a time; an abandoned call quarantines the runtime. */
   #enqueue(operation, signal, timeout = ACTION_TIMEOUT_MS) {
-    if (this.#closed) return Promise.reject(new Error('Cua Driver runtime is closed'))
-    const run = this.#tail.then(async () => {
-      signal?.throwIfAborted()
-      if (this.#closed) throw new Error('Cua Driver runtime is closed')
-      return withTimeout(Promise.resolve().then(operation), timeout, 'Cua Driver operation', signal)
-    })
-    this.#tail = run.catch(() => {})
-    return run
+    return this.#queue.run(operation, { signal, timeoutMs: timeout, label: 'Cua Driver operation' })
   }
 
   async #window(pid, windowId) {
@@ -183,11 +152,6 @@ export class CuaRuntime {
   }
 
   close() {
-    if (this.#closed) return this.#tail
-    this.#closed = true
-    this.#generation = Symbol('closed-cua-runtime-generation')
-    const final = this.#tail.then(() => withTimeout(this.#driver.shutdown(), SHUTDOWN_TIMEOUT_MS, 'Cua Driver shutdown'))
-    this.#tail = final.catch(() => {})
-    return final
+    return this.#queue.close(() => this.#driver.shutdown())
   }
 }
