@@ -36,5 +36,5 @@ test('the plugin exposes only curated listing and observation tools', async () =
 test('policy requires opaque bigint identity and performs window allowlist checks', async () => {
   const source = await readFile(policyPath, 'utf8')
   assert.match(source, /typeof window\.windowId !== 'bigint'/)
-  assert.match(source, /allowedApps\.has\(app\)/)
+  assert.match(source, /allowedApps\.matches\(/)
 })

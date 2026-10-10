@@ -19,6 +19,23 @@ test('the driver settings routes report status without accessing the desktop', a
   assert.ok(h.routes.has('/api/computer-use-safe-win/status'))
   assert.ok(h.routes.has('/api/computer-use-safe-win/install'))
   assert.ok(h.routes.has('/api/computer-use-safe-win/validate-config'))
+  assert.ok(h.routes.has('/api/computer-use-safe-win/running-apps'), 'the allowlist picker route must be offered')
+  const picker = h.routes.get('/api/computer-use-safe-win/running-apps')
+  // Reading the running applications enumerates processes, so a request that is
+  // not the local browser must be refused before any driver work.
+  const remote = await picker.fetch(new Request('http://dsh.internal/api/computer-use-safe-win/running-apps', {
+    method: 'POST',
+    headers: { host: 'example.com:443', 'sec-fetch-site': 'same-origin' },
+    body: '{}',
+  }))
+  assert.equal(remote.status, 403)
+  assert.match((await remote.json()).error, /local authenticated browser/)
+  const crossSite = await picker.fetch(new Request('http://dsh.internal/api/computer-use-safe-win/running-apps', {
+    method: 'POST',
+    headers: { host: '127.0.0.1:3080', 'sec-fetch-site': 'cross-site' },
+    body: '{}',
+  }))
+  assert.equal(crossSite.status, 403)
   const response = await h.routes.get('/api/computer-use-safe-win/status').fetch(new Request('http://127.0.0.1/status'))
   const status = await response.json()
   assert.equal(typeof status.installed, 'boolean')
@@ -34,4 +51,15 @@ test('the config validator rejects invalid types and empty enabled allowlists', 
   assert.throws(() => Plugin.validateConfig({ enabled: 'true', allowedApps: [] }), /enabled must be an explicit boolean/)
   assert.throws(() => Plugin.validateConfig({ enabled: true, allowedApps: [] }), /nonempty executable allowlist/)
   assert.deepEqual(Plugin.validateConfig({ enabled: false, allowedApps: [] }), { enabled: false, allowedApps: [] })
+})
+
+test('the allowlist accepts an absolute path entry as well as a filename', () => {
+  // The Host validator returns the normalized, lowercase form it will persist.
+  assert.deepEqual(Plugin.validateConfig({ enabled: true, allowedApps: ['C:\\Program Files\\App\\app.exe'] }).allowedApps, ['c:\\program files\\app\\app.exe'])
+  assert.deepEqual(Plugin.validateConfig({ enabled: true, allowedApps: ['Notepad.exe'] }).allowedApps, ['notepad.exe'])
+  assert.throws(() => Plugin.validateConfig({ enabled: true, allowedApps: ['Program Files\\app.exe'] }), /invalid executable name/)
+  assert.throws(() => Plugin.validateConfig({ enabled: true, allowedApps: ['C:\\Windows\\System32\\cmd.exe'] }), /forbidden application/)
+  // The declared schema only enforces the shape; it keeps what the user typed.
+  assert.deepEqual(JSON.parse(JSON.stringify(Plugin.Config({ enabled: false, allowedApps: ['C:\\Program Files\\App\\app.exe'] }).allowedApps.get())), ['C:\\Program Files\\App\\app.exe'])
+  assert.throws(() => Plugin.Config({ enabled: false, allowedApps: ['Program Files\\app.exe'] }), /allowedApps/)
 })

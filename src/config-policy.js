@@ -8,7 +8,7 @@ export function normalizeAllowedApps(input) {
 export function validateAllowedApps(entries) {
   if (!Array.isArray(entries) || entries.some(value => typeof value !== 'string')) throw new Error('allowlist must contain executable names')
   if (entries.length > 64) throw new Error('allowlist cannot contain more than 64 applications')
-  const normalized = entries.map(value => value.toLowerCase())
+  const normalized = entries.map(value => value.replace(/\//g, '\\').trim().toLowerCase())
   if (new Set(normalized).size !== normalized.length) throw new Error('allowlist contains duplicate application names')
   if (normalized.length > 0) configuredApps(normalized)
   return normalized

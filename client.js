@@ -5,12 +5,48 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const STATUS = '/api/computer-use-safe-win/status'
     const INSTALL = '/api/computer-use-safe-win/install'
+    const CANDIDATES = '/api/computer-use-safe-win/running-apps'
+    const VALIDATE = '/api/computer-use-safe-win/validate-config'
     const LOCALE_NS = 'computerUseSafeWin'
     const CONFIG_ID = 'computer-use-safe-win'
+    const EXECUTABLE_NAME = /^[\w.-]{1,128}\.exe$/i
+    const EXECUTABLE_PATH = /^[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n]+[\\/])*[^\\/:*?"<>|\r\n]+\.exe$/i
     const TEXT = {
-      zh: { nav: '电脑操控', title: 'Cua Driver', intro: '先安装受管驱动并确认状态。安装不会开启桌面观察；保存配置也不会绕过平台、驱动或白名单检查。', test: '刷新驱动状态', refresh: '正在检查…', checked: '状态已刷新', install: '安装驱动', confirm: '从 trycua 官方发行版下载并安装固定版本驱动？', busy: '正在安装…', absent: '未安装', ready: '受管驱动已安装（未启动验证）', unsupported: '当前系统不支持', version: '受管版本', expected: '目标版本', error: '请求失败', remote: '仅本机浏览器允许安装；远程连接请在主机本机打开设置页。', configTitle: '观察配置', configIntro: '白名单按可执行文件名匹配；启用会启动观察运行时，但当前仍没有输入动作。请只添加可信应用。', enabled: '启用窗口观察', allowlist: '允许的应用（每行一个 .exe）', save: '保存配置', saving: '正在保存…', loading: '正在读取 Host 配置…', unavailable: 'Host 配置不可用；请在本机设置页重试。', readonly: '当前连接不可写。请使用 DSH 主机本机浏览器修改持久配置。', saved: 'Host 已接受配置并完成持久化。', invalid: '请检查配置', disabled: '观察功能已关闭。', enabledStatus: '观察功能已启用；运行时及驱动仍需单独验证。', configError: '配置保存失败或发生版本冲突；请刷新页面后重试。' },
-      en: { nav: 'Computer Use', title: 'Cua Driver', intro: 'Install and verify the managed driver status. Installation never enables observation; saving configuration does not bypass platform, driver, or allowlist checks.', test: 'Refresh driver status', refresh: 'Checking…', checked: 'Status refreshed', install: 'Install driver', confirm: 'Download and install the pinned driver from the official trycua release?', busy: 'Installing…', absent: 'Not installed', ready: 'Managed driver installed (runtime not tested)', unsupported: 'Unsupported system', version: 'Managed version', expected: 'Target version', error: 'Request failed', remote: 'Installation is restricted to the local browser; open settings on the Host.', configTitle: 'Observation settings', configIntro: 'The allowlist matches executable filenames. Enabling starts the observation runtime, but input actions remain unavailable. Add only trusted applications.', enabled: 'Enable window observation', allowlist: 'Allowed applications (one .exe per line)', save: 'Save settings', saving: 'Saving…', loading: 'Loading Host settings…', unavailable: 'Host settings are unavailable; retry from the local settings page.', readonly: 'This connection cannot write persistent settings. Use the Host’s local browser.', saved: 'Host accepted and persisted the settings.', disabled: 'Observation is disabled.', enabledStatus: 'Observation is enabled; runtime and driver behavior still require separate verification.', invalid: 'Check the settings', configError: 'Settings save failed or conflicted; reload the page and retry.' },
+      zh: { nav: '电脑操控', title: 'Cua Driver', intro: '先安装受管驱动并确认状态。安装不会开启桌面观察；保存配置也不会绕过平台、驱动或白名单检查。', test: '刷新驱动状态', refresh: '正在检查…', checked: '状态已刷新', install: '安装驱动', confirm: '从 trycua 官方发行版下载并安装固定版本驱动？', busy: '正在安装…', absent: '未安装', ready: '受管驱动已安装（未启动验证）', unsupported: '当前系统不支持', version: '受管版本', expected: '目标版本', error: '请求失败', remote: '仅本机浏览器允许安装；远程连接请在主机本机打开设置页。', configTitle: '观察配置', configIntro: '只有白名单里的应用才能被列举和观察。每一项可以是可执行文件名（如 notepad.exe，更宽松）或绝对路径（如 C:\\Program Files\\App\\app.exe，更精确）。保存后立即对后续调用生效，无需重启。请只添加可信应用。', enabled: '启用窗口观察', allowlist: '允许的应用白名单', addApp: '添加应用', removeApp: '删除', appPlaceholder: 'notepad.exe 或 C:\\Program Files\\App\\app.exe', emptyList: '白名单为空；启用观察前至少添加一个应用。', pickApp: '从运行中的应用选择', picking: '正在读取…', candidatesTitle: '正在运行的应用', candidatesEmpty: '没有可添加的应用。', candidatesNote: '有路径时默认添加绝对路径，更精确；没有路径的应用只能按文件名添加。', add: '添加', save: '保存配置', saving: '正在保存…', loading: '正在读取 Host 配置…', unavailable: 'Host 配置不可用；请在本机设置页重试。', readonly: '当前连接不可写。请使用 DSH 主机本机浏览器修改持久配置。', saved: 'Host 已接受配置并完成持久化；对后续调用立即生效。', invalid: '请检查配置', disabled: '观察功能已关闭。', enabledStatus: '观察功能已启用；运行时及驱动仍需单独验证。', configError: '配置保存失败或发生版本冲突；请刷新页面后重试。' },
+      en: { nav: 'Computer Use', title: 'Cua Driver', intro: 'Install and verify the managed driver status. Installation never enables observation; saving configuration does not bypass platform, driver, or allowlist checks.', test: 'Refresh driver status', refresh: 'Checking…', checked: 'Status refreshed', install: 'Install driver', confirm: 'Download and install the pinned driver from the official trycua release?', busy: 'Installing…', absent: 'Not installed', ready: 'Managed driver installed (runtime not tested)', unsupported: 'Unsupported system', version: 'Managed version', expected: 'Target version', error: 'Request failed', remote: 'Installation is restricted to the local browser; open settings on the Host.', configTitle: 'Observation settings', configIntro: 'Only allowlisted applications can be listed or observed. Each entry is either an executable filename (notepad.exe, broader) or an absolute path (C:\\Program Files\\App\\app.exe, stricter). A save applies to later calls without a restart. Add only trusted applications.', enabled: 'Enable window observation', allowlist: 'Allowed applications', addApp: 'Add application', removeApp: 'Remove', appPlaceholder: 'notepad.exe or C:\\Program Files\\App\\app.exe', emptyList: 'The allowlist is empty; add at least one application before enabling observation.', pickApp: 'Choose a running application', picking: 'Reading…', candidatesTitle: 'Running applications', candidatesEmpty: 'No application is available to add.', candidatesNote: 'Applications that report a path are added by absolute path, which is stricter. The rest can only be added by filename.', add: 'Add', save: 'Save settings', saving: 'Saving…', loading: 'Loading Host settings…', unavailable: 'Host settings are unavailable; retry from the local settings page.', readonly: 'This connection cannot write persistent settings. Use the Host’s local browser.', saved: 'Host accepted and persisted the settings; they apply to later calls at once.', invalid: 'Check the settings', disabled: 'Observation is disabled.', enabledStatus: 'Observation is enabled; runtime and driver behavior still require separate verification.', configError: 'Settings save failed or conflicted; reload the page and retry.' },
     }
+
+    /**
+     * The allowlist entry one row becomes, checked here so an obvious typo is
+     * reported before the round-trip. The Host re-checks the same forms and owns
+     * the decision; this only saves the user a failed save.
+     */
+    function entryFor(value) {
+      const trimmed = value.trim().replace(/\//g, '\\')
+      if (!trimmed) return undefined
+      if (EXECUTABLE_PATH.test(trimmed)) {
+        if (trimmed.split(/[\\/]/).some(segment => segment === '..')) throw new Error(`path must not contain ..: ${trimmed}`)
+        return trimmed.toLowerCase()
+      }
+      if (!EXECUTABLE_NAME.test(trimmed)) throw new Error(`not an executable filename or absolute path: ${trimmed}`)
+      return trimmed.toLowerCase()
+    }
+
+    /**
+     * Convert the edited rows into the allowlist the Host will validate.
+     *
+     * @param {string[]} rows - Current editor rows, one entry each.
+     * @returns {string[]} Normalized, deduplicated entries in editor order.
+     */
+    function normalizeRows(rows) {
+      const entries = []
+      for (const row of rows) {
+        const entry = entryFor(row)
+        if (entry !== undefined && !entries.includes(entry)) entries.push(entry)
+      }
+      return entries
+    }
+
     // The renderer supplies `t` as a translation function for the registered
     // locale namespace, not as a dictionary of translated values.
     function DriverSettings({ t, configForms }) {
@@ -20,7 +56,9 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = React.useState('')
       const [checking, setChecking] = React.useState(false)
       const [configBusy, setConfigBusy] = React.useState(false)
-      const [draftApps, setDraftApps] = React.useState(null)
+      const [candidates, setCandidates] = React.useState(null)
+      const [candidatesBusy, setCandidatesBusy] = React.useState(false)
+      const [draftRows, setDraftRows] = React.useState(null)
       const [draftEnabled, setDraftEnabled] = React.useState(null)
       const formRef = React.useRef(null)
       formRef.current ??= configForms.get(CONFIG_ID)
@@ -46,7 +84,7 @@ window.__ModuleLoader__.load({
       }
       React.useEffect(() => { void test() }, [])
       React.useEffect(() => {
-        setDraftApps(null)
+        setDraftRows(null)
         setDraftEnabled(null)
       }, [config.revision])
       async function install() {
@@ -59,6 +97,27 @@ window.__ModuleLoader__.load({
         } catch (cause) { setError(String(cause.message || cause)) }
         finally { setBusy(false) }
       }
+      /**
+       * Read the running applications the Host can see, so entries can be picked
+       * instead of typed. Read-only: it lists processes and adds nothing.
+       */
+      async function pickRunning() {
+        setCandidatesBusy(true)
+        setError('')
+        try { setCandidates((await request(CANDIDATES)).applications ?? []) }
+        catch (cause) { setError(String(cause.message || cause)); setCandidates([]) }
+        finally { setCandidatesBusy(false) }
+      }
+      /**
+       * Append one picked application, by absolute path when the Host reported
+       * one, otherwise by its executable filename.
+       *
+       * @param {{ name: string, path?: string }} app - Picked running application.
+       */
+      function addCandidate(app) {
+        const entry = app.path ?? app.name
+        setDraftRows([...rows, entry])
+      }
       async function saveConfig(event) {
         event.preventDefault()
         // The disabled button does not cover a second Enter-key submit.
@@ -67,10 +126,10 @@ window.__ModuleLoader__.load({
         setError('')
         setNotice('')
         try {
-          const allowedApps = globalThis.__normalizeAllowedApps(draftApps ?? (config.value?.allowedApps ?? []).join('\n'))
+          const allowedApps = normalizeRows(rows)
           const enabled = draftEnabled ?? Boolean(event.currentTarget.elements.enabled.checked)
           if (enabled && allowedApps.length === 0) throw new Error('enabled observation requires a nonempty allowlist')
-          const validation = await request('/api/computer-use-safe-win/validate-config', {
+          const validation = await request(VALIDATE, {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ enabled, allowedApps }),
           })
@@ -80,7 +139,7 @@ window.__ModuleLoader__.load({
             { op: 'set', path: ['enabled'], value: enabled },
           ], config.revision)
           if (!accepted) throw new Error(t('configError'))
-          setDraftApps(null)
+          setDraftRows(null)
           setDraftEnabled(null)
           setNotice(t('saved'))
         } catch (cause) { setError(`${t('invalid')}: ${String(cause.message || cause)}`) }
@@ -88,7 +147,22 @@ window.__ModuleLoader__.load({
       }
       const configReady = config.status === 'ready' && config.value
       const canWrite = configReady && config.writable && config.mode === 'host' && config.revision !== undefined
-      const currentApps = draftApps ?? (config.value?.allowedApps ?? []).join('\n')
+      const rows = draftRows ?? (config.value?.allowedApps ?? [])
+      const row = (value, index) => h('li', { key: index, style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+        h('input', {
+          name: `allowedApp-${index}`,
+          value,
+          placeholder: t('appPlaceholder'),
+          disabled: !canWrite || configBusy,
+          onChange: event => setDraftRows(rows.map((entry, at) => at === index ? event.target.value : entry)),
+          style: { flex: '1 1 auto', minWidth: '0' },
+        }),
+        h('button', {
+          type: 'button',
+          disabled: !canWrite || configBusy,
+          'aria-label': `${t('removeApp')} ${value || index + 1}`,
+          onClick: () => setDraftRows(rows.filter((_, at) => at !== index)),
+        }, t('removeApp')))
       return h('section', { style: { padding: '16px', border: '1px solid var(--dsw-border-default, #53657b)', borderRadius: '12px', maxWidth: '600px' } },
         h('h4', { style: { margin: '0 0 8px' } }, t('title')),
         h('p', null, t('intro')),
@@ -105,8 +179,19 @@ window.__ModuleLoader__.load({
           h('label', { style: { display: 'block', marginBottom: '12px' } },
             h('input', { type: 'checkbox', name: 'enabled', checked: draftEnabled ?? config.value.enabled, onChange: event => setDraftEnabled(event.target.checked), disabled: !canWrite || configBusy }), ' ', t('enabled')),
           h('p', { role: 'status' }, (draftEnabled ?? config.value.enabled) ? t('enabledStatus') : t('disabled')),
-          h('label', { style: { display: 'block' } }, t('allowlist'),
-            h('textarea', { name: 'allowedApps', rows: 6, value: currentApps, disabled: !canWrite || configBusy, onChange: event => setDraftApps(event.target.value), style: { display: 'block', width: '100%', marginTop: '6px' } })),
+          h('label', { style: { display: 'block', marginBottom: '6px' } }, t('allowlist')),
+          rows.length === 0 ? h('p', { role: 'status' }, t('emptyList')) : null,
+          h('ul', { style: { listStyle: 'none', margin: '0 0 8px', padding: '0', display: 'flex', flexDirection: 'column', gap: '6px' } }, rows.map(row)),
+          h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+            h('button', { type: 'button', disabled: !canWrite || configBusy, onClick: () => setDraftRows([...rows, '']) }, t('addApp')),
+            h('button', { type: 'button', disabled: !canWrite || configBusy || candidatesBusy, onClick: () => void pickRunning() }, candidatesBusy ? t('picking') : t('pickApp'))),
+          candidates === null ? null : h('div', { style: { marginTop: '8px', padding: '8px', border: '1px solid var(--dsw-border-default, #53657b)', borderRadius: '8px' } },
+            h('p', { style: { margin: '0 0 4px' } }, t('candidatesTitle')),
+            h('p', { style: { margin: '0 0 8px', fontSize: '0.9em', opacity: '0.8' } }, t('candidatesNote')),
+            candidates.length === 0 ? h('p', { role: 'status' }, t('candidatesEmpty')) : h('ul', { style: { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '240px', overflowY: 'auto' } },
+              candidates.map((app, index) => h('li', { key: `${app.pid}-${index}`, style: { display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'space-between' } },
+                h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: app.path ?? app.name }, app.path ?? app.name),
+                h('button', { type: 'button', disabled: configBusy, onClick: () => addCandidate(app) }, t('add')))))),
           h('button', { type: 'submit', disabled: !canWrite || configBusy, style: { marginTop: '12px' } }, configBusy ? t('saving') : t('save'))) : null,
         error ? h('p', { role: 'alert' }, error) : null)
     }

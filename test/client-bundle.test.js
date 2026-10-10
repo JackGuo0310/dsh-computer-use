@@ -48,7 +48,16 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
         const onSubmit = props.onSubmit
         props = { ...props, onSubmit: event => onSubmit({ ...event, currentTarget: event.currentTarget ?? renderCurrentTarget }) }
       }
-      return { type, props: { ...props, children }, children }
+      // Real React flattens nested arrays and drops null/undefined children;
+      // the harness must too or a mapped list would hide behind one array node.
+      const flat = []
+      const push = child => {
+        if (child === null || child === undefined || child === false) return
+        if (Array.isArray(child)) child.forEach(push)
+        else flat.push(child)
+      }
+      children.forEach(push)
+      return { type, props: { ...props, children: flat }, children: flat }
     },
     useState(initial) {
       const index = cursor++
@@ -82,13 +91,6 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   const configForms = { get(id) { assert.equal(id, 'computer-use-safe-win'); return form } }
   const sandbox = {
     navigator: { language: locale },
-    __normalizeAllowedApps(source) {
-      const entries = source.split(/[\r\n,;]+/).map(value => value.trim()).filter(Boolean)
-      if (entries.length > 64) throw new Error('allowlist cannot contain more than 64 applications')
-      if (entries.some(value => !/^[\w.-]{1,128}\.exe$/i.test(value) || /powershell|cmd|dsh/i.test(value))) throw new Error('invalid or forbidden executable name')
-      if (new Set(entries.map(value => value.toLowerCase())).size !== entries.length) throw new Error('allowlist contains duplicate application names')
-      return entries.map(value => value.toLowerCase())
-    },
     __configForms: configForms,
     setTimeout,
     fetch: async (path, options) => {
@@ -150,6 +152,26 @@ function findElement(node, predicate) {
   }
   return undefined
 }
+function findElements(node, predicate, found = []) {
+  if (!node || typeof node !== 'object') return found
+  if (predicate(node)) found.push(node)
+  for (const child of node.children ?? []) findElements(child, predicate, found)
+  return found
+}
+/** The editable allowlist row inputs, identified by their per-row input names. */
+const rowsOf = element => findElements(element, node => node.type === 'input' && /^allowedApp-\d+$/.test(node.props.name))
+/** The remove button of the allowlist row holding this exact entry. */
+const removeOf = (element, value) => {
+  const button = findElement(element, node => node.type === 'button' && node.props['aria-label'] === `删除 ${value}`)
+  assert.ok(button, `no remove button for ${value}`)
+  return button
+}
+/** Find a button by its rendered label. */
+function buttonWith(element, label) {
+  const button = findElement(element, node => node.type === 'button' && JSON.stringify(node.children).includes(label))
+  assert.ok(button, `no ${label} button`)
+  return button
+}
 
 test('the shipped client half registers a Settings section and renders driver and config controls', async () => {
   const page = await evaluate()
@@ -181,10 +203,18 @@ test('persistent GUI settings submit an atomic revision-fenced Host mutation', a
   let submit = findElement(element, node => node.type === 'form')
   assert.ok(submit)
   const checkbox = findElement(element, node => node.type === 'input' && node.props.type === 'checkbox')
-  const allowlist = findElement(element, node => node.type === 'textarea')
+  const rows = rowsOf(element)
   assert.equal(checkbox.props.checked, false)
-  assert.equal(allowlist.props.value, 'notepad.exe\ncalc.exe')
-  allowlist.props.onChange({ target: { value: 'notepad.exe' } })
+  assert.deepEqual(rows.map(row => row.props.value), ['notepad.exe', 'calc.exe'], 'each allowlist entry is its own editable row')
+  // Removing the second entry, then saving, is the delete half of the editor.
+  removeOf(element, 'calc.exe').props.onClick()
+  element = await page.render()
+  assert.deepEqual(rowsOf(element).map(row => row.props.value), ['notepad.exe'])
+  const add = buttonWith(element, '添加应用')
+  add.props.onClick()
+  element = await page.render()
+  assert.equal(rowsOf(element).length, 2, 'adding appends an empty row')
+  rowsOf(element)[1].props.onChange({ target: { value: 'C:\\Program Files\\App\\app.exe' } })
   checkbox.props.onChange({ target: { checked: true } })
   element = await page.render()
   submit = findElement(element, node => node.type === 'form')
@@ -194,10 +224,10 @@ test('persistent GUI settings submit an atomic revision-fenced Host mutation', a
   assert.equal(form.writes[0].expectedRevision, 7)
   assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
   assert.equal(JSON.parse(page.seen[1].options.body).enabled, true)
-  assert.deepEqual(JSON.parse(page.seen[1].options.body).allowedApps, ['notepad.exe'])
+  assert.deepEqual(JSON.parse(page.seen[1].options.body).allowedApps, ['notepad.exe', 'c:\\program files\\app\\app.exe'])
   assert.equal(form.writes[0].ops.length, 2)
   assert.equal(form.writes[0].ops[0].path[0], 'allowedApps')
-  assert.deepEqual(form.writes[0].ops[0].value, ['notepad.exe'])
+  assert.deepEqual(JSON.parse(JSON.stringify(form.writes[0].ops[0].value)), ['notepad.exe', 'c:\\program files\\app\\app.exe'])
   assert.equal(form.writes[0].ops[1].path[0], 'enabled')
   assert.equal(form.writes[0].ops[1].value, true)
   assert.equal(findElement(await page.render(), node => node.type === 'input' && node.props.type === 'checkbox').props.checked, true)

@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { CuaRuntime } from '../src/cua-adapter.js'
+import { configuredApps } from '../src/policy.js'
+
+const allowlist = (...entries) => configuredApps(entries)
 
 const WINDOW_ID = 987654321012345678n
 const app = { pid: 4242, running: true, launchPath: 'C:\\Windows\\System32\\notepad.exe' }
@@ -18,7 +21,7 @@ function stubDriver({ state = {}, clickResult } = {}) {
   const calls = []
   return {
     calls,
-    async listApps(input) { calls.push(['listApps', input]); return { apps: [app] } },
+    async listApps(input) { calls.push(['listApps', input]); return { apps: state.apps ?? [state.app ?? app] } },
     async listWindows(input) {
       calls.push(['listWindows', input])
       return { windows: [state.window ?? window] }
@@ -80,11 +83,11 @@ test('a click is refused when the window identity changed after the snapshot', a
 
 test('listTargets keeps only allowlisted executables from the fresh listing', async () => {
   const driver = stubDriver()
-  const targets = await new CuaRuntime(driver).listTargets(new Set(['notepad.exe']))
+  const targets = await new CuaRuntime(driver).listTargets(allowlist('notepad.exe'))
   assert.equal(targets.length, 1)
   assert.equal(targets[0].app, 'notepad.exe')
   assert.equal(targets[0].windowId, WINDOW_ID)
-  const none = await new CuaRuntime(driver).listTargets(new Set(['other.exe']))
+  const none = await new CuaRuntime(driver).listTargets(allowlist('other.exe'))
   assert.deepEqual(none, [])
 })
 
@@ -100,8 +103,27 @@ test('observe re-reads the window and projects a bounded snapshot', async () => 
 test('the runtime serializes calls and shuts the driver down once', async () => {
   const driver = stubDriver()
   const runtime = new CuaRuntime(driver)
-  await Promise.all([runtime.listTargets(new Set(['notepad.exe'])), runtime.listTargets(new Set(['notepad.exe']))])
+  const allowed = allowlist('notepad.exe')
+  await Promise.all([runtime.listTargets(allowed), runtime.listTargets(allowed)])
   await runtime.close()
   assert.equal(driver.calls.filter(([name]) => name === 'shutdown').length, 1)
-  await assert.rejects(runtime.listTargets(new Set(['notepad.exe'])), /closed/)
+  await assert.rejects(runtime.listTargets(allowed), /closed/)
+})
+
+test('a path entry selects one exact executable and nothing else', async () => {
+  const driver = stubDriver()
+  const listed = await new CuaRuntime(driver).listTargets(allowlist('C:\\Windows\\System32\\notepad.exe'))
+  assert.equal(listed.length, 1)
+  assert.equal(listed[0].path, 'c:\\windows\\system32\\notepad.exe')
+  const elsewhere = stubDriver({ state: { app: { ...app, launchPath: 'C:\\Other\\notepad.exe' } } })
+  assert.deepEqual(await new CuaRuntime(elsewhere).listTargets(allowlist('C:\\Windows\\System32\\notepad.exe')), [])
+})
+
+test('listApplications returns one identity per executable, without window titles', async () => {
+  const driver = stubDriver({ state: { apps: [app, { ...app, pid: 5555, launchPath: 'C:\\Windows\\System32\\calc.exe' }, { pid: 7, running: true, name: 'Notes.exe' }] } })
+  const applications = await new CuaRuntime(driver).listApplications()
+  assert.deepEqual(applications.map(entry => entry.name), ['calc.exe', 'notepad.exe', 'notes.exe'])
+  assert.equal(applications.find(entry => entry.name === 'notepad.exe').path, 'c:\\windows\\system32\\notepad.exe')
+  assert.equal(applications.find(entry => entry.name === 'notes.exe').path, undefined, 'an app with no reported path is listed by name only')
+  assert.equal(JSON.stringify(applications).includes('Untitled'), false, 'window titles must never be exposed here')
 })

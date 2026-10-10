@@ -38,6 +38,34 @@ function localBrowser(request) {
 }
 
 /**
+ * Whether the request came from the browser page served by this Host.
+ *
+ * Shared with the running-application route, which also enumerates the desktop.
+ *
+ * @param request - Incoming request on the authenticated API channel.
+ * @returns Whether the caller is the local browser.
+ */
+export function localBrowserRequest(request) {
+  return localBrowser(request)
+}
+
+/**
+ * JSON response headers shared by the Host routes.
+ */
+export const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
+
+/**
+ * Build a JSON response for a Host route.
+ *
+ * @param payload - Body to serialize.
+ * @param status - HTTP status.
+ * @returns The response.
+ */
+export function jsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), { status, headers: jsonHeaders })
+}
+
+/**
  * Register the driver status and installation routes on the authenticated API
  * channel. Neither route starts the Cua worker or enumerates the desktop.
  * @param ctx - Host context owning `connection` and the provider.

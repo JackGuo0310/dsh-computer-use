@@ -1,11 +1,14 @@
 import schema from '@deepseek-ai/schemastery'
 import { validateAllowedApps } from './config-policy.js'
 
-const executableName = schema.string().pattern(/^[\w.-]{1,128}\.exe$/i)
+// One allowlist entry is either a bare executable filename or an absolute
+// executable path; `policy.js` is the single definition of both forms, and this
+// pattern is its schema-side mirror so a Settings write is rejected on the spot.
+const allowlistEntryPattern = schema.string().pattern(/^(?:[\w.-]{1,128}\.exe|[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n]+[\\/])*[^\\/:*?"<>|\r\n]+\.exe)$/i)
 
 export const SettingsSchema = schema.object({
   enabled: schema.boolean().default(false).volatile(),
-  allowedApps: schema.array(executableName).max(64).default([]).volatile(),
+  allowedApps: schema.array(allowlistEntryPattern).max(64).default([]).volatile(),
 })
 
 export function validateSettingsDraft(value) {

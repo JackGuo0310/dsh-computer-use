@@ -1,5 +1,5 @@
-import { validateWindow } from './policy.js'
-import { registerDriverRoutes } from './driver-routes.js'
+import { configuredApps, validateWindow } from './policy.js'
+import { jsonResponse, jsonHeaders, localBrowserRequest, registerDriverRoutes } from './driver-routes.js'
 import { defineTool } from './tool-def.js'
 import { SettingsSchema, validateSettingsConfig, validateSettingsDraft } from './settings-validation.js'
 
@@ -53,7 +53,7 @@ function defined(value) {
  *
  * @param ctx - Context providing the computer-use registration and tool services.
  * @param options - Live settings reader and the driver runtime factory.
- * @returns After the provider slot, tools, and guidance are registered.
+ * @returns After the provider slot, tools, guidance, and settings routes.
  */
 export async function startSafeWinProvider(ctx, { readSettings, startRuntime }) {
   const lifetime = new AbortController()
@@ -70,7 +70,7 @@ export async function startSafeWinProvider(ctx, { readSettings, startRuntime }) 
   function currentAllowlist() {
     const settings = validateSettingsConfig(readSettings())
     if (!settings.enabled) throw new Error('window observation is disabled in the plugin settings')
-    return new Set(settings.allowedApps)
+    return configuredApps(settings.allowedApps)
   }
 
   /** Start the private worker once, on first use, bound to the plugin lifetime. */
@@ -207,6 +207,28 @@ export async function apply(ctx, config) {
   // function. The provider reads the live settings on every call, which is what
   // makes enabling, disabling, and allowlist edits take effect at once.
   const { startCuaRuntime } = await import('./cua-adapter.js')
+  // The picker is always offered: reading the running applications is how a user
+  // fills the allowlist in the first place, so it must not require observation
+  // to be enabled already. Reading it starts the driver worker and enumerates
+  // processes, so it is gated by the same local-browser check as installation and
+  // returns only the executable identity the allowlist matches on.
+  ctx.effect(() => ctx.connection.fetch.register({
+    path: '/api/computer-use-safe-win/running-apps',
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: async request => {
+      if (!localBrowserRequest(request)) return jsonResponse({ error: 'Listing running applications requires the local authenticated browser' }, 403)
+      let runtime
+      try {
+        runtime = await startCuaRuntime({})
+        return jsonResponse({ applications: await runtime.listApplications() })
+      } catch (error) {
+        return jsonResponse({ error: error instanceof Error ? error.message : 'listing running applications failed' }, 500)
+      } finally {
+        await runtime?.close().catch(() => {})
+      }
+    },
+  }), 'computer-use-safe-win: running applications')
   await startSafeWinProvider(ctx, {
     readSettings: () => resolveObservationConfig(config),
     startRuntime: signal => startCuaRuntime({ signal }),

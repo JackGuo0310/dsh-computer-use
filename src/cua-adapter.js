@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import { getDriverPaths, getDriverStatus } from './driver-install.js'
 import { buildPrivateWorkerOptions, STARTUP_TIMEOUT_MS } from './driver-options.js'
 import { ACTION_TIMEOUT_MS, OperationQueue, withTimeout } from './operation-queue.js'
-import { executableFromApp } from './policy.js'
+import { identityFromApp } from './policy.js'
 import { MAX_ELEMENTS, projectSnapshot } from './snapshot-policy.js'
 import {
   ActionTarget,
@@ -92,12 +92,13 @@ export class CuaRuntime {
     const app = apps.apps.find(item => item.pid === pid && item.running)
     const window = windows.windows.find(item => item.pid === pid && item.windowId === windowId)
     if (!app || !window) throw new Error('Cua window process identity is no longer available')
-    const filename = executableFromApp(app)
-    if (filename === undefined) throw new Error('Cua did not provide a verifiable Windows process executable filename')
+    const identity = identityFromApp(app)
+    if (identity === undefined) throw new Error('Cua did not provide a verifiable Windows process executable identity')
     return Object.freeze({
       pid,
       windowId,
-      app: filename,
+      app: identity.name,
+      ...identity.path === undefined ? {} : { path: identity.path },
       title: window.title,
       bounds: Object.freeze({ ...window.bounds }),
       isOnScreen: window.isOnScreen,
@@ -105,28 +106,68 @@ export class CuaRuntime {
     })
   }
 
-  listTargets(allowedApps, signal) {
-    const names = new Set([...allowedApps].map(name => name.toLowerCase()))
+  /**
+   * List on-screen windows whose executable identity the allowlist admits.
+   *
+   * @param allowlist - Parsed {@link Allowlist} of filename and path entries.
+   * @param signal - Optional abort signal.
+   * @returns Frozen window identities carrying the matched app name and path.
+   */
+  listTargets(allowlist, signal) {
     return this.#enqueue(async () => {
       const { apps } = await this.#driver.listApps({})
       const allowed = new Map()
       for (const app of apps) {
         if (!app.running) continue
-        const name = executableFromApp(app)
-        if (name !== undefined && names.has(name)) allowed.set(app.pid, name)
+        const identity = identityFromApp(app)
+        if (identity !== undefined && allowlist.matches(identity)) allowed.set(app.pid, identity)
       }
       const { windows } = await this.#driver.listWindows({ onScreenOnly: true })
       const targets = []
       for (const window of windows) {
         if (!Number.isInteger(window.pid) || window.pid <= 0) continue
-        const name = allowed.get(window.pid)
-        if (name === undefined) continue
+        const identity = allowed.get(window.pid)
+        if (identity === undefined) continue
         targets.push(Object.freeze({
-          pid: window.pid, windowId: window.windowId, app: name, title: window.title,
-          bounds: { ...window.bounds }, isOnScreen: window.isOnScreen, minimized: window.minimized === true,
+          pid: window.pid,
+          windowId: window.windowId,
+          app: identity.name,
+          ...identity.path === undefined ? {} : { path: identity.path },
+          title: window.title,
+          bounds: { ...window.bounds },
+          isOnScreen: window.isOnScreen,
+          minimized: window.minimized === true,
         }))
       }
       return targets
+    }, signal)
+  }
+
+  /**
+   * List the running Windows applications the allowlist can name.
+   *
+   * Used by the settings picker so a user adds a real executable identity instead
+   * of typing one. Apps the driver describes ambiguously, or not at all, are
+   * omitted rather than guessed, and window titles are never read.
+   *
+   * @param signal - Optional abort signal.
+   * @returns One `{ name, path?, pid }` record per distinct executable.
+   */
+  listApplications(signal) {
+    return this.#enqueue(async () => {
+      const { apps } = await this.#driver.listApps({})
+      const seen = new Set()
+      const applications = []
+      for (const app of apps) {
+        if (!app.running) continue
+        const identity = identityFromApp(app)
+        if (identity === undefined) continue
+        const key = identity.path ?? identity.name
+        if (seen.has(key)) continue
+        seen.add(key)
+        applications.push(Object.freeze({ name: identity.name, ...identity.path === undefined ? {} : { path: identity.path }, pid: app.pid }))
+      }
+      return applications.sort((left, right) => (left.path ?? left.name).localeCompare(right.path ?? right.name))
     }, signal)
   }
 
