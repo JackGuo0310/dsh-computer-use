@@ -21,9 +21,15 @@ window.__ModuleLoader__.load({
       const [checking, setChecking] = React.useState(false)
       const [configBusy, setConfigBusy] = React.useState(false)
       const [draftApps, setDraftApps] = React.useState(null)
+      const [draftEnabled, setDraftEnabled] = React.useState(null)
       const formRef = React.useRef(null)
       formRef.current ??= configForms.get(CONFIG_ID)
-      const config = React.useSyncExternalStore(formRef.current.subscribe, formRef.current.getSnapshot, formRef.current.getSnapshot)
+      const form = formRef.current
+      const config = React.useSyncExternalStore(
+        listener => form.subscribe(listener),
+        () => form.getSnapshot(),
+        () => form.getSnapshot(),
+      )
       async function request(path, options) {
         const response = await fetch(path, { credentials: 'same-origin', ...options })
         const value = await response.json()
@@ -39,7 +45,10 @@ window.__ModuleLoader__.load({
         finally { setChecking(false) }
       }
       React.useEffect(() => { void test() }, [])
-      React.useEffect(() => { setDraftApps(null) }, [config.revision])
+      React.useEffect(() => {
+        setDraftApps(null)
+        setDraftEnabled(null)
+      }, [config.revision])
       async function install() {
         if (!window.confirm(t('confirm'))) return
         setBusy(true)
@@ -57,12 +66,11 @@ window.__ModuleLoader__.load({
         setNotice('')
         try {
           const allowedApps = globalThis.__normalizeAllowedApps(draftApps ?? (config.value?.allowedApps ?? []).join('\\n'))
-          const enabled = Boolean(event.currentTarget.elements.enabled.checked)
+          const enabled = draftEnabled ?? Boolean(event.currentTarget.elements.enabled.checked)
           if (enabled && allowedApps.length === 0) throw new Error('enabled observation requires a nonempty allowlist')
-          const appsForValidation = allowedApps.length ? allowedApps : ['notepad.exe']
           const validation = await request('/api/computer-use-safe-win/validate-config', {
             method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ enabled, allowedApps: appsForValidation }),
+            body: JSON.stringify({ enabled, allowedApps }),
           })
           if (validation.valid !== true) throw new Error(validation.error || t('invalid'))
           const accepted = await formRef.current.mutate([
@@ -71,6 +79,7 @@ window.__ModuleLoader__.load({
           ], config.revision)
           if (!accepted) throw new Error(t('configError'))
           setDraftApps(null)
+          setDraftEnabled(null)
           setNotice(t('saved'))
         } catch (cause) { setError(`${t('invalid')}: ${String(cause.message || cause)}`) }
         finally { setConfigBusy(false) }
@@ -92,8 +101,8 @@ window.__ModuleLoader__.load({
         !configReady ? h('p', { role: 'status' }, config.status === 'loading' ? t('loading') : t('unavailable')) : !canWrite ? h('p', { role: 'status' }, t('readonly')) : null,
         configReady ? h('form', { onSubmit: saveConfig },
           h('label', { style: { display: 'block', marginBottom: '12px' } },
-            h('input', { type: 'checkbox', name: 'enabled', defaultChecked: config.value.enabled, disabled: !canWrite || configBusy }), ' ', t('enabled')),
-          h('p', { role: 'status' }, config.value.enabled ? t('enabledStatus') : t('disabled')),
+            h('input', { type: 'checkbox', name: 'enabled', checked: draftEnabled ?? config.value.enabled, onChange: event => setDraftEnabled(event.target.checked), disabled: !canWrite || configBusy }), ' ', t('enabled')),
+          h('p', { role: 'status' }, (draftEnabled ?? config.value.enabled) ? t('enabledStatus') : t('disabled')),
           h('label', { style: { display: 'block' } }, t('allowlist'),
             h('textarea', { name: 'allowedApps', rows: 6, value: currentApps, disabled: !canWrite || configBusy, onChange: event => setDraftApps(event.target.value), style: { display: 'block', width: '100%', marginTop: '6px' } })),
           h('button', { type: 'submit', disabled: !canWrite || configBusy, style: { marginTop: '12px' } }, configBusy ? t('saving') : t('save'))) : null,

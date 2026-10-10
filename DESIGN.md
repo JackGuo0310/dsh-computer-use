@@ -91,7 +91,7 @@ Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必
 - `GET /api/computer-use-safe-win/status`：只读受管目录，区分目标版本与已安装版本，并标记 `runtimeVerified: false`。
 - `POST /api/computer-use-safe-win/install`：除认证外还要求回环请求地址、same-origin 标记与显式确认头；远程 Host 或跨源请求返回 403，同一时刻只允许一次安装。
 
-安装器固定 `0.28.0` 官方发行包的 SHA-256，校验响应来源、体积上限、ZIP 根条目与解压总量，并在临时目录完成后原子重命名；从不执行二进制。浏览器半注册 `plugins.bundle.config` 键 `dsh-computer-use-safe-win`，仅在配置页（`view === 'page'`）渲染，提供「测试驱动」与「安装驱动」。安装不启动 worker、不枚举桌面；观察须另行把 `config.enabled` 置为 true 并配置 `allowedApps`。
+安装器固定 `0.28.0` 官方发行包的 SHA-256，校验响应来源、体积上限、ZIP 根条目与解压总量，并在临时目录完成后原子重命名；从不执行二进制。浏览器半在 Settings 侧栏注册 `settings.section`，通过 Host `configForms` 显示 observation 设置。草稿先经 `/api/computer-use-safe-win/validate-config` 独立校验（最多 64 项、拒绝重复及危险/格式错误的名称、统一小写），再以 Host revision fence 原子持久化；禁用时允许空白名单，启用时必须非空。此设置变更不会绕过平台和驱动检查。安装不启动 worker、不枚举桌面；观察须另行启用并配置 `allowedApps`。
 
 ## 阶段
 
@@ -99,6 +99,6 @@ Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必
 - B（观察路径、身份校验、Loader 与生命周期）：已实现并有桌面无关测试；完整打包验证已通过。
 - C（输入动作、审批后重验、结果验证、截图附件）：未完成；动作关闭，图像管线未验证。
 - D（移除旧 helper 链路、测试/配置/文档/打包）：旧产品代码与测试已移除；打包校验覆盖 client/locale/icon 资源。
-- E（最终审阅与本地提交）：本地提交与 tag `mvp-0.1.0` 已建立；不 push。
+- E（最终审阅与本地提交）：前序实现已有本地提交与 tag `mvp-0.1.0`；后续 GUI/配置修订按检查结果单独本地提交，不 push。
 
 旧 .NET helper 测试及 live acceptance 不是 Cua 验收。用户留下的未跟踪 `scripts/verify-live-inspect.mjs` 仍引用旧 helper，按要求保持未修改、未提交且不可运行。本次未进行 live desktop run；未来 live run 需针对明确隔离 fixture/VM 另行审批。

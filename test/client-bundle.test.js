@@ -7,16 +7,16 @@ import { fileURLToPath } from 'node:url'
 const bundle = await readFile(fileURLToPath(new URL('../client.js', import.meta.url)), 'utf8')
 const absent = { installed: false, supported: true, version: '0.28.0', installedVersion: null }
 const present = { installed: true, supported: true, version: '0.28.0', installedVersion: '0.28.0' }
-const validConfig = { valid: true, value: { enabled: false, allowedApps: ['notepad.exe'] } }
+const validConfig = { valid: true, value: { enabled: true, allowedApps: ['notepad.exe'] } }
 
 function configForm({ status = 'ready', enabled = false, allowedApps = [], writable = true, mode = 'host', revision = 1, accept = true } = {}) {
   let current = { status, value: status === 'ready' ? { enabled, allowedApps } : undefined, base: {}, user: {}, revision, writable, mode }
   const listeners = new Set()
   const writes = []
-  return {
+  const form = {
     writes,
-    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
-    getSnapshot() { return current },
+    subscribe(listener) { assert.equal(this, form); listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot() { assert.equal(this, form); return current },
     async mutate(ops, expectedRevision) {
       writes.push({ ops, expectedRevision })
       if (!accept) return false
@@ -27,6 +27,7 @@ function configForm({ status = 'ready', enabled = false, allowedApps = [], writa
       return true
     },
   }
+  return form
 }
 
 /** Evaluate the browser artifact against stub Cordis, React, configForms, and fetch seams. */
@@ -37,11 +38,18 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   const dictionaries = new Map()
   const state = []
   const dependencyHistory = []
+  let renderCurrentTarget
   let cursor = 0
   let effectCursor = 0
   const seen = []
   const react = {
-    createElement(type, props, ...children) { return { type, props: { ...props, children }, children } },
+    createElement(type, props, ...children) {
+      if (type === 'form' && props.onSubmit) {
+        const onSubmit = props.onSubmit
+        props = { ...props, onSubmit: event => onSubmit({ ...event, currentTarget: event.currentTarget ?? renderCurrentTarget }) }
+      }
+      return { type, props: { ...props, children }, children }
+    },
     useState(initial) {
       const index = cursor++
       if (state.length <= index) state[index] = typeof initial === 'function' ? initial() : initial
@@ -52,7 +60,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
       if (state.length <= index) state[index] = { current: initial }
       return state[index]
     },
-    useSyncExternalStore(subscribe, getSnapshot) { subscribe(() => {}); return getSnapshot() },
+    useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot) { subscribe(() => {}); return getSnapshot() ?? getServerSnapshot() },
     useEffect(run, deps) {
       const index = effectCursor++
       const previous = dependencyHistory[index]
@@ -74,13 +82,14 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   const configForms = { get(id) { assert.equal(id, 'computer-use-safe-win'); return form } }
   const sandbox = {
     navigator: { language: locale },
-    __configForms: configForms,
     __normalizeAllowedApps(source) {
       const entries = source.split(/[\r\n,;]+/).map(value => value.trim()).filter(Boolean)
       if (entries.length > 64) throw new Error('allowlist cannot contain more than 64 applications')
       if (entries.some(value => !/^[\w.-]{1,128}\.exe$/i.test(value) || /powershell|cmd|dsh/i.test(value))) throw new Error('invalid or forbidden executable name')
-      return [...new Set(entries.map(value => value.toLowerCase()))]
+      if (new Set(entries.map(value => value.toLowerCase())).size !== entries.length) throw new Error('allowlist contains duplicate application names')
+      return entries.map(value => value.toLowerCase())
     },
+    __configForms: configForms,
     setTimeout,
     fetch: async (path, options) => {
       seen.push({ path, options })
@@ -108,6 +117,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     effects.length = 0
     const t = key => dictionaries.get('computerUseSafeWin')?.[active]?.[key] ?? key
     const element = registered[0].Component({ close() {}, t, configForms })
+    renderCurrentTarget = { elements: { enabled: { checked: Boolean(findElement(element, node => node.type === 'input' && node.props.type === 'checkbox')?.props.checked) } } }
     for (const effect of effects) effect()
     return element
   }
@@ -165,21 +175,31 @@ test('the Settings nav label follows the active locale and English UI is complet
 })
 
 test('persistent GUI settings submit an atomic revision-fenced Host mutation', async () => {
-  const form = configForm({ revision: 7 })
+  const form = configForm({ revision: 7, enabled: false })
   const page = await evaluate({ form, respond: async path => path.endsWith('/validate-config') ? validConfig : absent })
-  const element = await page.render()
-  const submit = findElement(element, node => node.type === 'form')
+  let element = await page.render()
+  let submit = findElement(element, node => node.type === 'form')
   assert.ok(submit)
-  await submit.props.onSubmit({ preventDefault() {}, currentTarget: { elements: { enabled: { checked: false } } } })
+  const checkbox = findElement(element, node => node.type === 'input' && node.props.type === 'checkbox')
+  const allowlist = findElement(element, node => node.type === 'textarea')
+  assert.equal(checkbox.props.checked, false)
+  allowlist.props.onChange({ target: { value: 'notepad.exe' } })
+  checkbox.props.onChange({ target: { checked: true } })
+  element = await page.render()
+  submit = findElement(element, node => node.type === 'form')
+  assert.equal(findElement(element, node => node.type === 'input' && node.props.type === 'checkbox').props.checked, true)
+  await submit.props.onSubmit({ preventDefault() {} })
   assert.equal(form.writes.length, 1)
   assert.equal(form.writes[0].expectedRevision, 7)
   assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
-  assert.equal(JSON.parse(page.seen[1].options.body).enabled, false)
+  assert.equal(JSON.parse(page.seen[1].options.body).enabled, true)
+  assert.deepEqual(JSON.parse(page.seen[1].options.body).allowedApps, ['notepad.exe'])
   assert.equal(form.writes[0].ops.length, 2)
   assert.equal(form.writes[0].ops[0].path[0], 'allowedApps')
-  assert.equal(form.writes[0].ops[0].value.length, 0)
+  assert.deepEqual(form.writes[0].ops[0].value, ['notepad.exe'])
   assert.equal(form.writes[0].ops[1].path[0], 'enabled')
-  assert.equal(form.writes[0].ops[1].value, false)
+  assert.equal(form.writes[0].ops[1].value, true)
+  assert.equal(findElement(await page.render(), node => node.type === 'input' && node.props.type === 'checkbox').props.checked, true)
   assert.match(textOf(await page.render()), /Host 已接受配置并完成持久化/sg)
 })
 
