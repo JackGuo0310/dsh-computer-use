@@ -11,15 +11,15 @@ test('the Host half waits only for services the settings panel can resolve', asy
   const plugin = await import('../src/plugin.js')
   // `configForms` is a browser service (@deepseek-ai/dsh-ui-settings) and can never
   // exist in the Host process; declaring it left this plugin pending forever.
-  // `computerUse` is required, and the settings panel offers to install the
-  // package that provides it.
+  // `computerUse` is required, and the browser half installs its package through
+  // the Host plugin manager rather than asking this plugin's own routes.
   assert.deepEqual([...plugin.inject].sort(), ['computerUse', 'connection'])
   assert.equal(typeof plugin.Config, 'function', 'Config must be the callable Schemastery schema the Host resolves')
   assert.equal(typeof plugin.Config.toJSON, 'function')
-  assert.equal(plugin.REQUIRED_PACKAGE, '@deepseek-ai/dsh-computer-use')
 
   const source = await readFile(pluginPath, 'utf8')
   assert.doesNotMatch(source, /ctx\.configForms/)
+  assert.doesNotMatch(source, /\/requirements/, 'the prerequisite state is read from the plugin manager, not from this Host')
   assert.match(source, /ctx\.computerUse\.register\(PROVIDER\)/, 'the provider must take the exclusive registration')
 })
 

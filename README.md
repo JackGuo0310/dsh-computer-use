@@ -50,7 +50,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.6
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.7
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
@@ -162,6 +162,23 @@ v0.1.5 修好了启动挂起，但暴露出真正的根因：**本插件需要 `
 - 装完**需要重启 DSH**
 
 前置依赖沿用 DSH 官方 Cua computer-use 包的做法：`inject: ['connection', 'computerUse']`，只按服务名取注册表、不 import 宿主包，因此不会引入副本。
+
+### 0.1.6 → 0.1.7（前置依赖安装不再死锁）
+
+v0.1.6 的安装按钮走的是**本插件自己的 Host 路由**，于是形成死锁：宿主半要等 `computerUse` 服务才激活，而宿主半激活了才能回答「装没装」——所以按钮永远不出现，分区一片空白。
+
+本版把前置依赖的查询与安装完全移到浏览器半，直接问 DSH 插件管理器：
+
+- 浏览器端 `remote.pluginManager.listBundles()` 判断是否已安装
+- 未安装时显示说明和「安装前置组件」按钮，调用 `installBundle` 安装
+- **宿主半没有激活也不影响**：设置分区照常渲染并可操作
+- 没有插件管理器客户端半时只说明、不给出无效按钮
+
+同时删除 Host 侧的 `/requirements` 路由（它在需要它的状态下根本无法应答），并在测试中断言它不会回来；另加一条测试覆盖「配置表单仍在 loading 时分区依然可操作」。
+
+Host 侧仍为 `inject: ['connection', 'computerUse']`——这是 DSH 官方 Cua computer-use 包的做法：取注册表，但不 import 宿主包，因此不引入副本。
+
+**升级后仍需两次重启**：一次让本插件宿主半生效，一次让新装的前置包生效。若设置分区仍空白，请在浏览器硬刷新（Ctrl+Shift+R）以取到新的浏览器半产物。
 
 ## 许可证
 

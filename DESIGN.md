@@ -130,9 +130,9 @@ Host 半 `inject: ['connection', 'computerUse']`。
 - `computerUse` —— `@deepseek-ai/dsh-computer-use` 提供的**独占提供者注册表**，保证同一时刻只有一个 computer-use provider 控制桌面。**按服务名取用，不 import 宿主包**，因此不引入副本。
 - `configForms` **必须**排除：它是 `@deepseek-ai/dsh-ui-settings` 的浏览器端服务，宿主进程里永远不存在；误加会让插件永久 `pending` 且设置面板空白。
 
-宿主半在 `enabled: false` 时也会挂载 provider，使启用/停用/白名单改动对下一次调用立即生效；代价是必须存在 `computerUse` 服务。为免用户面对一个没有任何解释的 `pending` 条目，设置侧栏读取 `/api/computer-use-safe-win/requirements` 判断该服务是否存在，缺失时说明原因并提供通过 DSH 插件管理器安装该包的按钮（`remote.pluginManager.installBundle`），装完需重启 DSH。
+宿主半在 `enabled: false` 时也会挂载 provider，使启用/停用/白名单改动对下一次调用立即生效；代价是必须存在 `computerUse` 服务。
 
-profile 的组合来自 `package.json` 的 `dependencies` 与 `dsh.profile.bundles`，二者都由插件管理器写，因此插件**绝不**直接改 profile 文件，只调用受管安装接口。
+**前置依赖的查询与安装一律由浏览器半完成**（`remote.pluginManager.listBundles()` / `installBundle()`），**不得**放在本插件的 Host 路由里：在前置包装好之前宿主半根本不会激活，它自己的路由无法应答「装没装」，会形成死锁（v0.1.6 的缺陷，`/requirements` 路由因此被删除）。同理，插件**绝不**直接改 profile 文件——`dependencies` 与 `bundles` 由插件管理器写，只走受管安装接口。
 
 ## 宿主依赖边界（0.1.1 起强制）
 

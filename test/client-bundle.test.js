@@ -8,10 +8,14 @@ const bundle = await readFile(fileURLToPath(new URL('../client.js', import.meta.
 const absent = { installed: false, supported: true, version: '0.28.0', installedVersion: null }
 const present = { installed: true, supported: true, version: '0.28.0', installedVersion: '0.28.0' }
 const validConfig = { valid: true, value: { enabled: true, allowedApps: ['notepad.exe'] } }
-/** The prerequisite the Host half reports; `false` renders the install prompt. */
-const registryReady = { computerUseRegistry: true, package: '@deepseek-ai/dsh-computer-use' }
-const registryMissing = { computerUseRegistry: false, package: '@deepseek-ai/dsh-computer-use' }
+/** The prerequisite package, and what the plugin manager reports as installed. */
 const REQUIRED_PACKAGE = '@deepseek-ai/dsh-computer-use'
+const registryReady = ['@deepseek-ai/dsh-base', REQUIRED_PACKAGE]
+const registryMissing = ['@deepseek-ai/dsh-base']
+/** Shape the Host plugin manager returns from `listBundles()`. */
+function bundleList(names) {
+  return { ok: true, value: names.map(name => ({ name })) }
+}
 
 function configForm({ status = 'ready', enabled = false, allowedApps = [], writable = true, mode = 'host', revision = 1, accept = true } = {}) {
   let current = { status, value: status === 'ready' ? { enabled, allowedApps } : undefined, base: {}, user: {}, revision, writable, mode }
@@ -35,7 +39,7 @@ function configForm({ status = 'ready', enabled = false, allowedApps = [], writa
 }
 
 /** Evaluate the browser artifact against stub Cordis, React, configForms, and fetch seams. */
-async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, requirements = registryReady } = {}) {
+async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, registry = registryReady } = {}) {
   const registered = []
   const deferredSlot = new Map()
   const effects = []
@@ -100,7 +104,6 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     crypto: { randomUUID: () => 'request-1' },
     fetch: async (path, options) => {
       seen.push({ path, options })
-      if (path.endsWith('/requirements')) return { ok: true, json: async () => requirements }
       const value = await respond(path, options)
       return value instanceof Error ? value : { ok: value?.ok !== false, json: async () => value }
     },
@@ -116,6 +119,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   })
   const installs = []
   const pluginManagerStub = {
+    listBundles: async () => bundleList(registry),
     installBundle: async spec => { installs.push(spec); return { ok: true, value: { installed: spec } } },
   }
   namespace.apply({
@@ -201,7 +205,7 @@ test('the shipped client half registers a Settings section and renders driver an
   assert.match(text, /允许的应用/)
   assert.match(text, /Cua Driver/)
   assert.match(text, /未安装 · 目标版本: 0\.28\.0/)
-  assert.deepEqual(page.seen.map(call => call.path).sort(), ['/api/computer-use-safe-win/requirements', '/api/computer-use-safe-win/status'])
+  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
 })
 
 test('the Settings nav label follows the active locale and English UI is complete', async () => {
@@ -238,7 +242,7 @@ test('persistent GUI settings submit an atomic revision-fenced Host mutation', a
   await submit.props.onSubmit({ preventDefault() {} })
   assert.equal(form.writes.length, 1)
   assert.equal(form.writes[0].expectedRevision, 7)
-  assert.deepEqual(page.seen.map(call => call.path).sort(), ['/api/computer-use-safe-win/requirements', '/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
+  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
   assert.equal(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).enabled, true)
   assert.deepEqual(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).allowedApps, ['notepad.exe', 'c:\\program files\\app\\app.exe'])
   assert.equal(form.writes[0].ops.length, 2)
@@ -275,7 +279,7 @@ test('opening settings checks driver status and refresh gives visible feedback',
   assert.match(text, /Refresh driver status/)
   assert.match(text, /Not installed/)
   assert.match(text, /0\.28\.0/)
-  assert.deepEqual(page.seen.map(call => call.path).sort(), ['/api/computer-use-safe-win/requirements', '/api/computer-use-safe-win/status'])
+  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
 })
 
 test('the panel is not registered as a Plugins page block any more', async () => {
@@ -308,7 +312,7 @@ test('a refused installation surfaces the Host error without claiming success', 
 })
 
 test('a missing prerequisite is explained and installable through the Host plugin manager', async () => {
-  const page = await evaluate({ requirements: registryMissing, withManager: true, respond: async () => absent })
+  const page = await evaluate({ registry: registryMissing, withManager: true, respond: async () => absent })
   await page.render()
   const text = textOf(await page.render())
   assert.match(text, /缺少前置组件/)
@@ -318,12 +322,23 @@ test('a missing prerequisite is explained and installable through the Host plugi
   assert.match(textOf(await page.render()), /请重启 DSH/)
 })
 
+test('the panel still explains a missing prerequisite while the Host config form is loading', async () => {
+  // The Host half cannot answer anything until the prerequisite is installed,
+  // so the form stays in `loading` and the panel must still be actionable.
+  const form = configForm({ status: 'loading' })
+  const page = await evaluate({ form, registry: registryMissing, withManager: true, respond: async () => absent })
+  const text = textOf(await page.render())
+  assert.match(text, /缺少前置组件/)
+  assert.match(text, /安装前置组件/)
+  assert.doesNotMatch(text, /启用窗口观察/, 'the settings form must not offer writes while loading')
+})
+
 test('an installed prerequisite shows no install prompt, and one without the manager only explains', async () => {
-  const ready = await evaluate({ requirements: registryReady, respond: async () => absent })
+  const ready = await evaluate({ registry: registryReady, respond: async () => absent })
   await ready.render()
   assert.doesNotMatch(textOf(await ready.render()), /安装前置组件/)
 
-  const noManager = await evaluate({ requirements: registryMissing, withManager: false, respond: async () => absent })
+  const noManager = await evaluate({ registry: registryMissing, withManager: false, respond: async () => absent })
   await noManager.render()
   assert.match(textOf(await noManager.render()), /@deepseek-ai\/dsh-computer-use/)
   assert.doesNotMatch(textOf(await noManager.render()), /安装前置组件/)

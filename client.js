@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
     // `installPrerequisite` is supplied by the apply closure rather than read from
     // `ctx` here: the Host may not mount the plugin-manager client half, and a
     // component must not reach for a service the panel declares no inject for.
-    function DriverSettings({ t, configForms, installPrerequisite }) {
+    function DriverSettings({ t, configForms, prerequisites }) {
       const [status, setStatus] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
       const [error, setError] = React.useState('')
@@ -93,13 +93,22 @@ window.__ModuleLoader__.load({
       }
       React.useEffect(() => { void test() }, [])
       /**
-       * Ask the Host whether the exclusive provider registry is mounted. A plugin
-       * that never activates cannot answer, so a failure here means "missing" and
-       * is reported as such rather than as an error.
+       * Ask the Host's plugin manager whether the exclusive provider registry is
+       * installed.
+       *
+       * This deliberately does not go through a Host route: until the registry
+       * exists the Host half of this plugin cannot activate, so a route on this
+       * plugin could not answer. The plugin manager is a separate Host service and
+       * answers exactly this question.
        */
       React.useEffect(() => {
+        const manager = prerequisites?.installed
+        if (manager === undefined) { setRegistry({ installed: false }); return }
         let live = true
-        void request(REQUIREMENTS).then(value => { if (live) setRegistry(value) }).catch(() => { if (live) setRegistry({ computerUseRegistry: false, package: REQUIRED_PACKAGE }) })
+        void (async () => {
+          const result = await manager()
+          if (live) setRegistry({ installed: result.ok && result.value.some(bundle => bundle.name === REQUIRED_PACKAGE) })
+        })().catch(() => { if (live) setRegistry({ installed: false }) })
         return () => { live = false }
       }, [])
       React.useEffect(() => {
@@ -115,7 +124,7 @@ window.__ModuleLoader__.load({
      * `dependencies` and `bundles` consistent.
      */
       async function runInstallPrerequisite() {
-        const manager = installPrerequisite
+        const manager = prerequisites?.install
         if (manager === undefined) return
         if (!window.confirm(t('needConfirm'))) return
         setRegistryBusy(true)
@@ -214,11 +223,11 @@ window.__ModuleLoader__.load({
         }, t('removeApp')))
       return h('section', { style: { padding: '16px', border: '1px solid var(--dsw-border-default, #53657b)', borderRadius: '12px', maxWidth: '600px' } },
         h('h4', { style: { margin: '0 0 8px' } }, t('title')),
-        registry?.computerUseRegistry === false
+        registry?.installed === false
           ? h('div', { style: { padding: '8px', marginBottom: '12px', border: '1px solid var(--dsw-border-default, #53657b)', borderRadius: '8px' } },
             h('p', { style: { margin: '0 0 4px', fontWeight: 600 } }, t('needTitle')),
             h('p', { style: { margin: '0 0 8px' } }, t('needBody')),
-            installPrerequisite === undefined
+            prerequisites?.install === undefined
               ? null
               : h('button', { type: 'button', disabled: registryBusy, onClick: () => void runInstallPrerequisite() }, registryBusy ? t('needInstalling') : t('needInstall')))
           : null,
@@ -255,15 +264,19 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale', 'configForms', 'remote'],
       apply(ctx) {
-        // The Host connection face supplies the plugin manager used to install the
-        // prerequisite; it is absent on a host without that client half, and the
-        // panel then explains the problem instead of offering a dead action.
+        // The Host plugin manager is a separate service from this plugin, so it can
+        // answer "is the prerequisite installed?" and install it even while this
+        // plugin's Host half is still waiting for the prerequisite to appear.
+        // Nothing here edits the profile: the plugin manager owns those files.
         const manager = ctx.remote?.pluginManager
-        const installPrerequisite = manager === undefined ? undefined : () => manager.installBundle(REQUIRED_PACKAGE, {
-          enabled: false,
-          requestId: crypto.randomUUID(),
-          registry: undefined,
-        })
+        const prerequisites = manager === undefined ? undefined : {
+          installed: () => manager.listBundles(),
+          install: () => manager.installBundle(REQUIRED_PACKAGE, {
+            enabled: false,
+            requestId: crypto.randomUUID(),
+            registry: undefined,
+          }),
+        }
         // DSH Settings forms are keyed by the Host profile entry id; this section
         // is that one registered entry's own configuration surface.
         ctx.configForms.get(CONFIG_ID)
@@ -276,7 +289,7 @@ window.__ModuleLoader__.load({
           order: 30,
           label: () => ctx.locale.bind(LOCALE_NS)('nav'),
           locale: LOCALE_NS,
-        }, DriverSettings, { installPrerequisite }))
+        }, DriverSettings, { prerequisites }))
       },
     }
   },

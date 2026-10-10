@@ -16,14 +16,6 @@ export const Config = SettingsSchema
 export const validateConfig = validateSettingsConfig
 
 const PROVIDER = 'safe-win'
-/**
- * The package that provides the exclusive computer-use provider registry.
- *
- * This plugin cannot start without it, and it is an ordinary public plugin, so
- * the settings panel offers to install it through the Host's own plugin manager
- * rather than leaving the person with a `pending` entry and no explanation.
- */
-export const REQUIRED_PACKAGE = '@deepseek-ai/dsh-computer-use'
 const CHILD = 'computer-use-safe-win.runtime'
 const GUIDANCE = [
   'This computer-use provider can inspect only configured Windows executable filenames.',
@@ -266,15 +258,6 @@ export async function apply(ctx, config) {
       }
     },
   }), 'computer-use-safe-win: running applications')
-  // The settings panel must know whether the exclusive provider registry is
-  // present, because this plugin cannot activate without it. The browser half
-  // reads this to decide whether to offer the install action.
-  ctx.effect(() => ctx.connection.fetch.register({
-    path: '/api/computer-use-safe-win/requirements',
-    methods: ['GET'],
-    requestBody: 'buffered',
-    fetch: async () => jsonResponse({ computerUseRegistry: ctx.get?.('computerUse') !== undefined, package: REQUIRED_PACKAGE }),
-  }), 'computer-use-safe-win: requirements')
   await startSafeWinProvider(ctx, {
     readSettings: () => resolveObservationConfig(config),
     startRuntime: signal => startCuaRuntime({ signal }),
