@@ -42,11 +42,11 @@
 
 ## 尚未验证
 
-已确认 Renderer 的 props 规则：`settings.section` 是 shell 渲染的子 slot，不会继承插件 `apply(ctx)` 的 Cordis 服务代理，因此 `configForms` 与 `remote.pluginManager` 都由 `apply(ctx)` 取得或动态接管后经闭包传入。0.1.9 的认证后 GUI 实际渲染仍需确认。
+已确认 Renderer 的 props 规则：`settings.section` 是 shell 渲染的子 slot，不会继承插件 `apply(ctx)` 的 Cordis 服务代理，因此 `configForms` 与 `remote.pluginManager` 都由 `apply(ctx)` 取得或动态接管后经闭包传入。0.1.10–0.1.13 的分区渲染已在**认证后的真实 GUI** 中逐版目视确认：分区可见、驱动状态与按钮行为正常、DSH 原生化样式生效、挂载步骤与版本解析（`0.2.1-alpha.1` → `@0.2.1-alpha.2`）正确显示。
 
-`computerUse` 不再是必需依赖：DSH 默认 web profile 不挂载该注册表，Host 插件管理器也只激活带 bundle patch 的包（`installBundle` 会回滚无 patch 的包），因此没有任何自动安装路径。0.1.10 起 Host 半在缺少注册表时照常挂载工具，并在服务出现时取得独占槽位。已认证 GUI 中的实际运行仍未实测。
+`computerUse` 不再是必需依赖：DSH 默认 web profile 不挂载该注册表，Host 插件管理器也只激活带 bundle patch 的包（`installBundle` 会回滚无 patch 的包），因此没有任何自动安装路径。0.1.10 起 Host 半在缺少注册表时照常挂载两个观察工具，并在服务出现时取得独占槽位。**注册表本身尚未在本机挂载**，因此「挂载后自动取得独占槽位」这条路径仍未实测。
 
-`test/client-bundle.test.js` 仍加载真实插件 `client.js`，但使用轻量 React/slot harness，不等同于真实 DSH Renderer 或 React 调和；已覆盖 `configForms` 缺失、`remote.pluginManager` 延迟挂载、404 文本响应与按钮可用性。真实 GUI 中的可见渲染与交互仍需人工确认。
+`test/client-bundle.test.js` 仍加载真实插件 `client.js`，但使用轻量 React/slot harness，不等同于真实 DSH Renderer 或 React 调和；已覆盖 `configForms` 缺失、`remote.pluginManager` 延迟挂载、404 文本响应、挂载步骤渲染与剪贴板、按钮可用性。真实 GUI 中的可见渲染与交互已由上述目视确认补充，但仍无自动化覆盖。
 
 实施按小阶段做本地 Git commit，不 push。保留既有用户改动，不通过重置工作树掩盖迁移。
 
