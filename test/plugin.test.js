@@ -31,16 +31,26 @@ class StubRuntime {
   async close() { this.closed = true }
 }
 
-function harness({ attachments } = {}) {
-  const ctx = new Context()
-  const state = { provider: null, tools: new Map(), sections: [], released: 0 }
-  // The provider takes the shared exclusive registration, so the test host must
-  // provide it; a real profile installs the package that supplies it.
-  ctx.provide('computerUse', { register(name) {
+/**
+ * The exclusive registration a profile's `computerUse` service exposes.
+ *
+ * @param state - Holder recording the registered provider name.
+ * @returns A registry stub with the same single-slot contract.
+ */
+function providerSlot(state) {
+  return { register(name) {
     if (state.provider) throw new Error('computer use slot already taken')
     state.provider = name
     return async () => { state.provider = null; state.released++ }
-  } })
+  } }
+}
+
+function harness({ attachments, registry = true } = {}) {
+  const ctx = new Context()
+  const state = { provider: null, tools: new Map(), sections: [], released: 0 }
+  // The registry is optional in a real profile: the default web profile does not
+  // mount the package that provides it, so the provider must run without it.
+  if (registry) ctx.provide('computerUse', providerSlot(state))
   ctx.provide('tools', { register(definition) {
     if (state.tools.has(definition.name)) throw new Error('duplicate tool')
     state.tools.set(definition.name, definition)
@@ -223,6 +233,22 @@ test('a taken provider slot is refused before any worker starts', async () => {
     startRuntime: async () => { starts += 1; return new StubRuntime() },
   }), /already taken/)
   assert.equal(starts, 0)
+})
+
+test('the provider mounts without the exclusive registry and adopts one mounted later', async () => {
+  // The default web profile ships no `@deepseek-ai/dsh-computer-use`, and the Host
+  // plugin manager cannot install a package without a bundle patch, so requiring
+  // the service left the whole Host half pending forever.
+  const h = harness({ registry: false })
+  const provider = await start(h)
+  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe'], 'the tools mount without a registry')
+  assert.equal(h.state.provider, null, 'there is no slot to hold yet')
+  h.ctx.provide('computerUse', providerSlot(h.state))
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(h.state.provider, 'safe-win', 'a registry mounted later is adopted')
+  await provider.dispose()
+  assert.equal(h.state.provider, null, 'unloading releases the adopted registration')
 })
 
 test('disposal during a lazy worker start aborts the start and leaks nothing', async () => {

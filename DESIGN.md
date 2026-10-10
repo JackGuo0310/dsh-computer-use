@@ -122,19 +122,22 @@ SDK 提供 `SetAgentCursorEnabled` / `SetAgentCursorMotion` / `SetAgentCursorThe
 界面注册在 `settings.section`（设置侧栏独立分区），与其他设置功能一致，而非
 `plugins.bundle.config`（Plugins 页内的配置块）。
 
-## 宿主服务依赖（0.1.6 起）
+## 宿主服务依赖（0.1.6 起；0.1.10 起 `computerUse` 可选）
 
-Host 半 `inject: ['connection', 'computerUse']`。当前 web profile 的 manifest 含 `dsh-computer-use-safe-win`，但其依赖中不含 `@deepseek-ai/dsh-computer-use`；配置也未在 `cordis.patch.yml` 显式列出 provider。该状态可解释 `pending (waiting for service: computerUse)`，但未检查运行中 Loader composition，故不能断言它是唯一原因。
+Host 半 `inject: ['connection']`。
 
 - `connection` —— 认证 API 通道，路由挂载点。
 - `computerUse` —— `@deepseek-ai/dsh-computer-use` 提供的**独占提供者注册表**，保证同一时刻只有一个 computer-use provider 控制桌面。**按服务名取用，不 import 宿主包**，因此不引入副本。
-- `configForms` 是浏览器端 `ui-settings` 提供的服务，与 Host 的 `pending` 问题无关。`settings.section` 是根 Settings shell 渲染的子 slot，Shell 不会把注册插件的 Cordis `ctx` 或服务代理传给其 Component；若 Component 读取其未注入的 `configForms`，会触发 render error 并由 Renderer 的 entry error boundary 隔离该 section。客户端 `apply(ctx)` 可在声明 inject 中获取 form，然后通过闭包传给 Component。Host 仍必须排除 `configForms`。实际 GUI 空白是否由此触发，尚待认证后验证。
+  - 该服务在默认 web profile 中**不存在**：DSH 不挂载提供它的包，而 Host 插件管理器只激活带 bundle patch 的包（`installBundle` 对无 patch 的包回滚 `package.json`/`pnpm-lock.yaml`），插件无法代装。
+  - 因此把它声明为必需依赖会让 Host 半永久停在 `pending (waiting for service: computerUse)`：路由不注册、工具不挂载（v0.1.3–v0.1.9 的实际状态）。
+  - 0.1.10 起用 `ctx.get('computerUse')` 探测：存在就 `register(PROVIDER)`（槽位被占用时抛错，保持「拒绝第二个 provider」语义）；不存在则以 `ctx.inject(['computerUse'])` 动态接管，服务在之后的热加载中出现时仍会被取得。缺少注册表不降低安全性：没有注册表时其它 computer-use provider 同样无法运行。
+- `configForms` **必须**排除：它是 `@deepseek-ai/dsh-ui-settings` 的浏览器端服务，宿主进程里永远不存在。
 
-宿主半在 `enabled: false` 时也会挂载 provider，使启用/停用/白名单改动对下一次调用立即生效；代价是必须存在 `computerUse` 服务。profile 是否已装载该 provider 应通过当前 composition 状态确认。
+宿主半在 `enabled: false` 时也会挂载 provider，使启用/停用/白名单改动对下一次调用立即生效。
 
-**前置依赖的查询与安装一律由浏览器半完成**（`remote.pluginManager.listBundles()` / `installBundle()`），**不得**放在本插件的 Host 路由里：在前置包装好之前宿主半根本不会激活，它自己的路由无法应答「装没装」，会形成死锁（v0.1.6 的缺陷，`/requirements` 路由因此被删除）。同理，插件**绝不**直接改 profile 文件——`dependencies` 与 `bundles` 由插件管理器写，只走受管安装接口。
+**前置依赖的查询由浏览器半完成**（`remote.pluginManager.listBundles()`），但**不存在自动安装路径**：`remote.pluginManager` 是连接完成后才挂载的 Remote namespace，`apply` 阶段读取只会得到 `undefined`（0.1.6/0.1.7 的「安装前置组件」按钮因此从未出现）；而 `installBundle` 会拒绝没有 bundle patch 的包。插件**绝不**直接改 profile 文件——`dependencies` 与 `bundles` 由插件管理器写。需要严格互斥的用户自行在 profile 的 `cordis.patch.yml` 里 `insert` 该包。
 
-**浏览器半注册分区只用 `slots.register(options, component)` 重载**；附加数据（例如当前客户端上下文取得的 `configForms`、可选的 `pluginManager`）经闭包传入。`settings.section` 注册项没有 `inject` face，Shell 不会把 Provider 的服务注入子组件；Renderer 的标准注入包含 locale 的 `t`，而其余来自注册项自己的 `inject` 或父 slot 明确声明的共享 inject face。该插件捕获 `configForms` 后通过闭包传给 `DriverSettings`，且在无该服务时以不可用状态降级。旧版测试桩只检查 `register()` 参数形状，并未复现真实 Renderer 的子 slot props 装配，因此不能据此归因 v0.1.6 / v0.1.7 空白。
+**浏览器半注册分区只用 `slots.register(options, component)` 重载**；附加数据（当前客户端上下文的 `configForms`、动态接管的 `remote.pluginManager`）经闭包传入。`settings.section` 注册项没有 `inject` face，Shell 不会把 Provider 的服务注入子组件；Renderer 的标准注入包含 locale 的 `t`，其余来自注册项自己的 `inject` 或父 slot 明确声明的共享 inject face。两个来源都在缺失时降级：`configForms` 缺失时配置区显示不可用，`remote.pluginManager` 未挂载时不显示注册表状态。旧版测试桩只检查 `register()` 参数形状，并未复现真实 Renderer 的子 slot props 装配，因此不能据此归因 v0.1.6 / v0.1.7 空白。
 
 ## 宿主依赖边界（0.1.1 起强制）
 
@@ -196,6 +199,7 @@ Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必
 - B.6（后台点击送达语义的 live 证据）：前台窗口与**非激活后台窗口**两次点击均报 `route: accessibility` / `delivery.mode: background` / `effect: unverifiable`，而窗口确实改变且未抢焦点。据此固化「后台语义是硬能力」「驱动自述不是效果证据、模糊结果不可重放」。
 - B.7（文字输入的能力边界与标题身份修复）：实测 `typeText` / `pressKey` 在后台窗口下自述成功但字符数不变，前台则字符数客观递增（0→27→39→49）。同时修复「窗口标题被当作身份」导致首次输入后自我锁死的缺陷。动作工具仍未注册。
 - B.8（截图经附件服务交付）：新增 `src/screenshot-delivery.js` 与 `defineTool` 的 `projectContent` 钩子，截图以 `ImageAttachmentRef` 进结果、图像块由投影并入内容，附件存储按服务名取得、不 import 宿主包，缺服务时 fail closed。真实宿主中的模型可见性仍未验证。
+- B.9（可选独占注册表与面板状态诚实化）：`computerUse` 由必需依赖改为可选（缺失时照常挂载工具，出现时经 `ctx.inject` 取得独占槽位）；面板不再显示注定被 `installBundle` 拒绝的前置安装按钮，改为在能确认未挂载时给出说明；`remote.pluginManager` 改为动态接管（原实现在连接前读取，永远是 `undefined`）；驱动状态未知时明确显示并禁用安装按钮；404/非 JSON 响应转成可读原因。均为桌面无关测试；认证后 GUI 仍待人工确认。
 - C（输入动作、审批后重验、结果验证、截图附件）：未完成；动作关闭，图像管线未验证。
 - D（移除旧 helper 链路、测试/配置/文档/打包）：旧产品代码与测试已移除；打包校验覆盖 client/locale/icon 资源。
 - E（最终审阅与本地提交）：前序实现已有本地提交与 tag `mvp-0.1.0`；后续 GUI/配置修订按检查结果单独本地提交，不 push。

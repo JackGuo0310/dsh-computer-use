@@ -39,7 +39,7 @@ function configForm({ status = 'ready', enabled = false, allowedApps = [], writa
 }
 
 /** Evaluate the genuine browser artifact with DSH-like Cordis, React, slot, and fetch seams. */
-async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, registry = registryReady, withConfigForms = true } = {}) {
+async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, deferManager = false, registry = registryReady, withConfigForms = true } = {}) {
   const registered = []
   const deferredSlot = new Map()
   const effects = []
@@ -115,7 +115,16 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     fetch: async (path, options) => {
       seen.push({ path, options })
       const value = await respond(path, options)
-      return value instanceof Error ? value : { ok: value?.ok !== false, json: async () => value }
+      // A bare Error is a transport failure, as `fetch` would throw one.
+      if (value instanceof Error && typeof value.json !== 'function') throw value
+      const shape = value instanceof Error ? await value.json() : value
+      const raw = value?.raw
+      return {
+        ok: value?.ok !== false,
+        status: value?.status ?? (value?.ok === false ? 400 : 200),
+        json: async () => shape,
+        text: async () => raw ?? JSON.stringify(shape),
+      }
     },
     window: { confirm: () => true, __ModuleLoader__: { load(value) { registration = value } } },
   }
@@ -127,17 +136,27 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     assert.equal(specifier, 'react', 'the artifact may request only the seeded React module')
     return react
   })
-  const installs = []
-  const pluginManagerStub = {
-    listBundles: async () => bundleList(registry),
-    installBundle: async spec => { installs.push(spec); return { ok: true, value: { installed: spec } } },
-  }
+  const pluginManagerStub = { listBundles: async () => bundleList(registry) }
+  // `remote.pluginManager` is a Remote namespace that the client mounts after the
+  // connection is up, so the harness hands it over through `ctx.inject` rather
+  // than as a property the plugin could read during apply.
+  let adoptManager
   namespace.apply({
     slots, locale: localeService, configForms: withConfigForms ? configForms : undefined,
-    // `withManager: false` reproduces a Host that does not mount the
-    // plugin-manager client half, so the panel must only explain.
+    // `withManager: false` reproduces a Host that never mounts the
+    // plugin-manager client half, so the panel must stay silent about it.
     remote: withManager ? { pluginManager: pluginManagerStub } : undefined,
     effect: run => { run(); return () => {} },
+    inject(deps, callback) {
+      assert.deepEqual([...deps], ['remote.pluginManager'], 'the panel may wait only for the plugin-manager namespace')
+      if (!withManager) return () => {}
+      const start = () => callback({ get: name => { assert.equal(name, 'remote.pluginManager'); return pluginManagerStub } })
+      // `deferManager: true` keeps the namespace unmounted until the test asks,
+      // which is the real ordering during a client boot.
+      if (deferManager) adoptManager = start
+      else start()
+      return () => {}
+    },
   })
   assert.equal(deferredSlot.has('settings.section'), true)
   for (const register of deferredSlot.values()) register()
@@ -173,7 +192,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     await button.props.onClick()
     await settle()
   }
-  return { namespace, registered, render, press, seen, installs, spec: registered[0].spec, form, entry: () => registered[0] }
+  return { namespace, registered, render, press, seen, spec: registered[0].spec, form, adoptManager: () => adoptManager?.(), entry: () => registered[0] }
 }
 
 const textOf = element => JSON.stringify(element)
@@ -334,36 +353,68 @@ test('a refused installation surfaces the Host error without claiming success', 
   assert.match(textOf(await page.render()), /local authenticated browser/)
 })
 
-test('a missing prerequisite is explained and installable through the Host plugin manager', async () => {
+test('an optional registry that is missing is explained, with no install the manager would refuse', async () => {
+  // The Host plugin manager activates only bundles that ship a patch file, and
+  // `@deepseek-ai/dsh-computer-use` ships none, so offering an install button
+  // would only ever produce a refused install.
   const page = await evaluate({ registry: registryMissing, withManager: true, respond: async () => absent })
-  await page.render()
   const text = textOf(await page.render())
-  assert.match(text, /缺少前置组件/)
+  assert.match(text, /未挂载独占注册表/)
   assert.match(text, /@deepseek-ai\/dsh-computer-use/)
-  await page.press(await page.render(), '安装前置组件')
-  assert.deepEqual(page.installs, [REQUIRED_PACKAGE])
-  assert.match(textOf(await page.render()), /请重启 DSH/)
+  assert.doesNotMatch(text, /安装前置组件/)
+  assert.equal(findElement(await page.render(), node => node.type === 'button' && JSON.stringify(node.children).includes('安装前置组件')), undefined)
 })
 
-test('the panel still explains a missing prerequisite while the Host config form is loading', async () => {
-  // The Host half cannot answer anything until the prerequisite is installed,
-  // so the form stays in `loading` and the panel must still be actionable.
+test('the panel still explains a missing registry while the Host config form is loading', async () => {
   const form = configForm({ status: 'loading' })
   const page = await evaluate({ form, registry: registryMissing, withManager: true, respond: async () => absent })
   const text = textOf(await page.render())
-  assert.match(text, /缺少前置组件/)
-  assert.match(text, /安装前置组件/)
+  assert.match(text, /未挂载独占注册表/)
+  assert.match(text, /正在读取 Host 配置/)
   assert.doesNotMatch(text, /启用窗口观察/, 'the settings form must not offer writes while loading')
 })
 
-test('an installed prerequisite shows no install prompt, and one without the manager only explains', async () => {
+test('the panel adopts the plugin-manager namespace mounted after apply', async () => {
+  // The namespace mounts only once the client connection is up; reading
+  // `ctx.remote.pluginManager` during apply captured undefined forever, which
+  // silently hid every registry state the panel can show.
+  const page = await evaluate({ registry: registryMissing, deferManager: true, respond: async () => absent })
+  await page.render()
+  assert.doesNotMatch(textOf(await page.render()), /未挂载独占注册表/, 'nothing is known before the namespace mounts')
+  page.adoptManager()
+  assert.match(textOf(await page.render()), /未挂载独占注册表/, 'the adopted namespace reports the registry state')
+})
+
+test('an installed registry adds no note, and one without the namespace stays silent', async () => {
   const ready = await evaluate({ registry: registryReady, respond: async () => absent })
   await ready.render()
-  assert.doesNotMatch(textOf(await ready.render()), /安装前置组件/)
+  assert.doesNotMatch(textOf(await ready.render()), /未挂载独占注册表/)
 
   const noManager = await evaluate({ registry: registryMissing, withManager: false, respond: async () => absent })
   await noManager.render()
-  assert.match(textOf(await noManager.render()), /@deepseek-ai\/dsh-computer-use/)
-  assert.doesNotMatch(textOf(await noManager.render()), /安装前置组件/)
-  assert.equal(noManager.installs.length, 0)
+  assert.doesNotMatch(textOf(await noManager.render()), /未挂载独占注册表/)
+  assert.match(textOf(await noManager.render()), /Cua Driver/)
+})
+
+test('an unavailable Host half reports a readable reason instead of a parse error', async () => {
+  // Without its Host half the plugin's routes answer 404 with a text body; the
+  // panel used to surface the raw JSON.parse failure.
+  const page = await evaluate({ respond: async () => ({ ok: false, status: 404, raw: 'not found' }) })
+  const text = textOf(await page.render())
+  assert.match(text, /Host 半未激活或路由不可用/)
+  assert.match(text, /驱动状态未知/)
+  assert.doesNotMatch(text, /Unexpected token|is not valid JSON/)
+})
+
+test('the driver install button stays disabled until a status answer proves the driver is absent', async () => {
+  const unknown = await evaluate({ locale: 'en-US', respond: async () => ({ ok: false, status: 404, raw: 'not found' }) })
+  const unknownText = textOf(await unknown.render())
+  assert.match(unknownText, /Driver status unknown/)
+  assert.equal(buttonWith(await unknown.render(), 'Install driver').props.disabled, true)
+
+  const installed = await evaluate({ locale: 'en-US', respond: async () => present })
+  assert.equal(buttonWith(await installed.render(), 'Install driver').props.disabled, true)
+
+  const missing = await evaluate({ locale: 'en-US', respond: async () => absent })
+  assert.equal(buttonWith(await missing.render(), 'Install driver').props.disabled, false)
 })

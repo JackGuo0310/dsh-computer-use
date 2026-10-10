@@ -42,9 +42,11 @@
 
 ## 尚未验证
 
-已确认 Renderer 的 props 规则：`settings.section` 是 shell 渲染的子 slot，不会继承插件 `apply(ctx)` 的 Cordis `configForms` 服务代理；旧组件直接读取该代理会导致 render error，并由 Renderer 的 entry error boundary 隔离。客户端现由 `apply(ctx)` 捕获表单并经闭包传入，服务不可用时显示提示。空白页的实际运行时根因仍需在认证后的 DSH Web GUI 确认。Host `computerUse` 的 `pending` 是独立问题：当前 web profile 中插件 manifest 没有 `@deepseek-ai/dsh-computer-use` 依赖，patch 也未显式加入该 provider；这能解释 `computerUse` 服务缺失，但未检查运行中 Loader composition，不能断言这是唯一原因。未更改生命周期或注入设计。
+已确认 Renderer 的 props 规则：`settings.section` 是 shell 渲染的子 slot，不会继承插件 `apply(ctx)` 的 Cordis 服务代理，因此 `configForms` 与 `remote.pluginManager` 都由 `apply(ctx)` 取得或动态接管后经闭包传入。0.1.9 的认证后 GUI 实际渲染仍需确认。
 
-`test/client-bundle.test.js` 仍加载真实插件 `client.js`，但使用轻量 React/slot harness，不等同于真实 DSH Renderer 或 React 调和；已加缺少 `configForms` 的降级回归。当前 GUI 的 HTTP 根路径要求认证，仅访问 loopback 未能取得页面诊断，因此仍需在已认证的 DSH Web GUI 实际确认可见渲染与交互。
+`computerUse` 不再是必需依赖：DSH 默认 web profile 不挂载该注册表，Host 插件管理器也只激活带 bundle patch 的包（`installBundle` 会回滚无 patch 的包），因此没有任何自动安装路径。0.1.10 起 Host 半在缺少注册表时照常挂载工具，并在服务出现时取得独占槽位。已认证 GUI 中的实际运行仍未实测。
+
+`test/client-bundle.test.js` 仍加载真实插件 `client.js`，但使用轻量 React/slot harness，不等同于真实 DSH Renderer 或 React 调和；已覆盖 `configForms` 缺失、`remote.pluginManager` 延迟挂载、404 文本响应与按钮可用性。真实 GUI 中的可见渲染与交互仍需人工确认。
 
 实施按小阶段做本地 Git commit，不 push。保留既有用户改动，不通过重置工作树掩盖迁移。
 
@@ -52,10 +54,10 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.8
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.10
 ```
 
-安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
+安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「刷新驱动状态」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。独占注册表 `@deepseek-ai/dsh-computer-use` 是可选的，挂载方法见 0.1.10 一节。
 
 ### 0.1.0 → 0.1.1（重复核心模块）
 
@@ -152,35 +154,17 @@ v0.1.4 曾被报告启动挂起、设置面板空白。发布代码包含错误�
 
 **升级**：把插件地址改成 `#v0.1.6`，然后重新启用观察并保存一次白名单。
 
-### 0.1.5 → 0.1.6（前置依赖可一键安装）
+### 0.1.5 → 0.1.6（尝试一键安装前置依赖）
 
-v0.1.5 修正 `configForms` 的 Host 注入声明后，Host half 仍需要 `@deepseek-ai/dsh-computer-use` 提供的独占注册表。若 profile 没有安装/加载该 provider，插件会停在 `pending (waiting for service: computerUse)`。安装按钮最初计划通过 Host 路由提供，但 Host half 尚未激活前无法应答，因此需改由浏览器半调用 DSH 插件管理器。
+v0.1.5 修正 `configForms` 的 Host 注入声明后，Host half 仍声明需要 `@deepseek-ai/dsh-computer-use` 提供的独占注册表；profile 没有该包时，插件停在 `pending (waiting for service: computerUse)`，路由不注册、工具不挂载。
 
-本版不要求你手动去装：
+当时设想的解决方式是由设置面板调用插件管理器安装该前置包，但这条路径**不成立**（见 0.1.10）：Host 插件管理器只接受带 bundle patch 的包，安装后会回滚；该包没有 patch，因此插件管理器无法安装它。
 
-- 设置侧栏「电脑操控」顶部显示「缺少前置组件」并说明原因
-- 提供**「安装前置组件」**按钮，点击后二次确认，通过 DSH 自己的插件管理器安装（不直接改 profile 文件，避免和插件管理器抢写）
-- 已装则不显示该提示；没有插件管理器客户端半时只说明、不给出无效按钮
-- 装完**需要重启 DSH**
+### 0.1.6 → 0.1.7（前置依赖查询移到浏览器半）
 
-前置依赖沿用 DSH 官方 Cua computer-use 包的做法：`inject: ['connection', 'computerUse']`，只按服务名取注册表、不 import 宿主包，因此不会引入副本。
+v0.1.6 的安装按钮走的是**本插件自己的 Host 路由**，于是形成死锁：宿主半要等 `computerUse` 服务才激活，而宿主半激活了才能回答「装没装」。本版把查询与安装移到浏览器半（`remote.pluginManager.listBundles()` / `installBundle()`），并删除 Host 侧的 `/requirements` 路由。
 
-### 0.1.6 → 0.1.7（前置依赖安装不再死锁）
-
-v0.1.6 的安装按钮走的是**本插件自己的 Host 路由**，于是形成死锁：宿主半要等 `computerUse` 服务才激活，而宿主半激活了才能回答「装没装」——所以按钮永远不出现，分区一片空白。
-
-本版把前置依赖的查询与安装完全移到浏览器半，直接问 DSH 插件管理器：
-
-- 浏览器端 `remote.pluginManager.listBundles()` 判断是否已安装
-- 未安装时显示说明和「安装前置组件」按钮，调用 `installBundle` 安装
-- **宿主半没有激活也不影响**：设置分区照常渲染并可操作
-- 没有插件管理器客户端半时只说明、不给出无效按钮
-
-同时删除 Host 侧的 `/requirements` 路由（它在需要它的状态下根本无法应答），并在测试中断言它不会回来；另加一条测试覆盖「配置表单仍在 loading 时分区依然可操作」。
-
-Host 侧仍为 `inject: ['connection', 'computerUse']`——这是 DSH 官方 Cua computer-use 包的做法：取注册表，但不 import 宿主包，因此不引入副本。
-
-**升级后仍需两次重启**：一次让本插件宿主半生效，一次让新装的前置包生效。
+该版本仍假设插件管理器能安装这个包；0.1.10 用真实源码证明它不能，并取消了这个前提。
 
 ### 0.1.7 → 0.1.8（修正设置分区数据传递）
 
@@ -196,7 +180,28 @@ ctx.slots.inject('settings.section', () => ctx.slots.register({ … }, Section))
 
 回归测试加载真实 `client.js`，并验证缺少 `configForms` 时分区内容仍可渲染；该测试使用轻量 React/slot harness，不覆盖真实 Renderer 和 React 调和。
 
-**升级步骤**：改地址为 `#v0.1.8` → 浏览器硬刷新（Ctrl+Shift+R）→ 重启 DSH → 打开「电脑操控」，应能看到「缺少前置组件」和安装按钮 → 安装 → 再重启一次。
+### 0.1.9 → 0.1.10（Host 半不再等待独占注册表；驱动状态不再误导）
+
+v0.1.9 之后仍有两个真实缺陷：
+
+1. **Host 半永远 pending**。宿主 composition 里没有 `computerUse` 服务：DSH 默认 web profile 不挂载提供它的包，而 Host 插件管理器只激活带 bundle patch 的包（`installBundle` 对没有 patch 的包会回滚 `package.json`/`pnpm-lock.yaml`），所以**没有任何 profile 能替本插件装上它**。因此 `computerUse` 改为可选：缺少时插件照常挂载两个观察工具；服务出现时（包括之后热加载出现）立即用 `ctx.inject(['computerUse'])` 取得独占槽位。独占语义不变，只是不再以「等待一个永远不来的服务」为代价。
+2. **驱动状态与按钮误导**。Host 半未激活时 `/status` 返回 404 文本，面板既显示原始 `Unexpected token 'o', "not found" is not valid JSON`，又把「安装驱动」显示为可点。现在：状态未知时明确显示「驱动状态未知（Host 半未激活）」，「安装驱动」只在状态证实**未安装**时可点；404 或非 JSON 响应统一转成可读原因。
+3. **前置提示按钮失效**。`remote.pluginManager` 是 Remote namespace，客户端连接后才作为独立 Cordis 插件挂载；`apply` 期间读取只会得到 `undefined`（这正是「安装前置组件」按钮从未出现的原因）。现在改为 `ctx.inject(['remote.pluginManager'])` 动态接管，面板据此显示注册表状态。
+
+注册表现在是**可选**的：面板只在能确认「未挂载」时给出说明，不再提供注定被拒绝的安装按钮。若需要严格互斥（例如同时使用官方 Cua provider），把它手动挂进 profile：
+
+```yaml
+# ~/.dsh/profiles/web/cordis.patch.yml
+- insert:
+    - id: computer-use
+      name: '@deepseek-ai/dsh-computer-use'
+```
+
+```sh
+dsh plugin --profile web add @deepseek-ai/dsh-computer-use@0.2.1-alpha.2
+```
+
+**升级步骤**：把插件地址改成 `#v0.1.10` → 浏览器硬刷新 → 重启 DSH → 打开「电脑操控」。此时应看到 `未安装 · 目标版本: 0.28.0`（若驱动已装则显示「受管驱动已安装（未启动验证）」），并可直接配置白名单。
 
 ## 许可证
 

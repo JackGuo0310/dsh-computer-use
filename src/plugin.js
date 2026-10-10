@@ -5,13 +5,20 @@ import { projectionApplies, projectScreenshots, storeScreenshots } from './scree
 import { SettingsSchema, validateSettingsConfig, validateSettingsDraft } from './settings-validation.js'
 
 export const name = 'computer-use-safe-win'
-// `connection` is the authenticated API channel. `computerUse` is the exclusive
-// provider registry from `@deepseek-ai/dsh-computer-use`; requiring it keeps two
-// desktop-control providers from running at once, and the settings panel
-// offers to install it. `configForms` must stay out of this list: it is a
-// browser service owned by `@deepseek-ai/dsh-ui-settings` and can never exist
-// in the Host process, and declaring it left this plugin pending forever.
-export const inject = ['connection', 'computerUse']
+// `connection` is the authenticated API channel.
+//
+// `computerUse` — the exclusive provider registry from
+// `@deepseek-ai/dsh-computer-use` — is deliberately *not* required. DSH's default
+// web profile does not mount that package, and the Host plugin manager admits
+// only bundles that ship a patch file, so no profile can install it on this
+// plugin's behalf: requiring the service parked the whole Host half on
+// `pending (waiting for service: computerUse)` forever. The provider still takes
+// the registry slot whenever the service exists, so two desktop-control
+// providers can never share it.
+//
+// `configForms` must stay out of this list too: it is a browser service owned by
+// `@deepseek-ai/dsh-ui-settings` and can never exist in the Host process.
+export const inject = ['connection']
 export const Config = SettingsSchema
 export const validateConfig = validateSettingsConfig
 
@@ -58,7 +65,7 @@ function defined(value) {
  * makes enabling immediate: nothing here can observe anything until a call reads
  * `enabled: true` from the live settings.
  *
- * @param ctx - Context providing the computer-use registration and tool services.
+ * @param ctx - Context providing the tool services and, when the profile mounts it, the computer-use registry.
  * @param options - Live settings reader and the driver runtime factory.
  * @returns After the provider slot, tools, guidance, and settings routes.
  */
@@ -97,10 +104,22 @@ export async function startSafeWinProvider(ctx, { readSettings, startRuntime }) 
     return starting
   }
 
+  // The exclusive registration is optional. `@deepseek-ai/dsh-computer-use` is
+  // not part of the default web profile and cannot be installed by the Host
+  // plugin manager (it ships no bundle patch), so a missing registry must not
+  // park the provider: the tools stay available, and the slot is taken whenever
+  // the service appears — now or after a later profile reload.
+  const registry = ctx.get('computerUse')
+  if (registry === undefined) {
+    ctx.inject(['computerUse'], inner => {
+      inner.effect(() => inner.computerUse.register(PROVIDER), 'computer-use-safe-win.registration')
+    })
+  }
+
   const dispose = ctx.effect(function* () {
     // The shared registry keeps a second computer-use provider from taking the
     // desktop while this one holds it.
-    yield ctx.computerUse.register(PROVIDER)
+    if (registry !== undefined) yield registry.register(PROVIDER)
     ctx.on('internal/plugin', fiber => {
       if (fiber === ctx.fiber && fiber.uid === null) lifetime.abort(new Error('plugin unloading'))
     }, { global: true })

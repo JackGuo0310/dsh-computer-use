@@ -7,20 +7,23 @@ const adapterPath = fileURLToPath(new URL('../src/cua-adapter.js', import.meta.u
 const policyPath = fileURLToPath(new URL('../src/policy.js', import.meta.url))
 const pluginPath = fileURLToPath(new URL('../src/plugin.js', import.meta.url))
 
-test('the Host half waits only for services the settings panel can resolve', async () => {
+test('the Host half waits only for services the profile can actually provide', async () => {
   const plugin = await import('../src/plugin.js')
   // `configForms` is a browser service (@deepseek-ai/dsh-ui-settings) and can never
   // exist in the Host process; declaring it left this plugin pending forever.
-  // `computerUse` is required, and the browser half installs its package through
-  // the Host plugin manager rather than asking this plugin's own routes.
-  assert.deepEqual([...plugin.inject].sort(), ['computerUse', 'connection'])
+  // `computerUse` is optional too: the default web profile does not mount the
+  // package that provides it, and the Host plugin manager admits only bundles with
+  // a patch file, so requiring it parked the whole Host half on `pending`.
+  assert.deepEqual([...plugin.inject].sort(), ['connection'])
   assert.equal(typeof plugin.Config, 'function', 'Config must be the callable Schemastery schema the Host resolves')
   assert.equal(typeof plugin.Config.toJSON, 'function')
 
   const source = await readFile(pluginPath, 'utf8')
   assert.doesNotMatch(source, /ctx\.configForms/)
   assert.doesNotMatch(source, /\/requirements/, 'the prerequisite state is read from the plugin manager, not from this Host')
-  assert.match(source, /ctx\.computerUse\.register\(PROVIDER\)/, 'the provider must take the exclusive registration')
+  assert.match(source, /register\(PROVIDER\)/, 'the provider must take the exclusive registration whenever the registry exists')
+  assert.match(source, /ctx\.get\('computerUse'\)/, 'a missing registry must be detected instead of awaited')
+  assert.match(source, /ctx\.inject\(\['computerUse'\]/, 'a registry mounted later must still be adopted')
 })
 
 test('the Cua adapter uses only the SDK-managed private worker topology', async () => {

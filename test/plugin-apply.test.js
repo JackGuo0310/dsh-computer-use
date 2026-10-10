@@ -8,6 +8,10 @@ function host() {
   const ctx = {
     connection: { fetch: { register(route) { routes.set(route.path, route); return () => routes.delete(route.path) } } },
     effect(fn) { return fn() },
+    // This profile mounts no `computerUse` registry, which is the default: the
+    // provider must mount anyway and only wait for the service dynamically.
+    get() { return undefined },
+    inject() { return () => {} },
   }
   return { ctx, routes }
 }
