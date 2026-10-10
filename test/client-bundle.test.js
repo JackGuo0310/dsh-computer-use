@@ -5,12 +5,32 @@ import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
 const bundle = await readFile(fileURLToPath(new URL('../client.js', import.meta.url)), 'utf8')
-
 const absent = { installed: false, supported: true, version: '0.28.0', installedVersion: null }
 const present = { installed: true, supported: true, version: '0.28.0', installedVersion: '0.28.0' }
+const validConfig = { valid: true, value: { enabled: false, allowedApps: ['notepad.exe'] } }
 
-/** Evaluate the shipped browser artifact against stub Cordis, React, and fetch seams. */
-async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {}) {
+function configForm({ status = 'ready', enabled = false, allowedApps = [], writable = true, mode = 'host', revision = 1, accept = true } = {}) {
+  let current = { status, value: status === 'ready' ? { enabled, allowedApps } : undefined, base: {}, user: {}, revision, writable, mode }
+  const listeners = new Set()
+  const writes = []
+  return {
+    writes,
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot() { return current },
+    async mutate(ops, expectedRevision) {
+      writes.push({ ops, expectedRevision })
+      if (!accept) return false
+      const value = { ...(current.value ?? {}) }
+      for (const op of ops) value[op.path[0]] = op.value
+      current = { ...current, value, revision: (current.revision ?? 0) + 1 }
+      for (const listener of listeners) listener()
+      return true
+    },
+  }
+}
+
+/** Evaluate the browser artifact against stub Cordis, React, configForms, and fetch seams. */
+async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm() } = {}) {
   const registered = []
   const deferredSlot = new Map()
   const effects = []
@@ -23,18 +43,20 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {})
   const react = {
     createElement(type, props, ...children) { return { type, props: { ...props, children }, children } },
     useState(initial) {
-      const index = cursor
-      cursor += 1
+      const index = cursor++
       if (state.length <= index) state[index] = typeof initial === 'function' ? initial() : initial
       return [state[index], value => { state[index] = value }]
     },
+    useRef(initial) {
+      const index = cursor++
+      if (state.length <= index) state[index] = { current: initial }
+      return state[index]
+    },
+    useSyncExternalStore(subscribe, getSnapshot) { subscribe(() => {}); return getSnapshot() },
     useEffect(run, deps) {
-      // Effects are identified by hook order, so dependency history is positional.
-      const index = effectCursor
-      effectCursor += 1
+      const index = effectCursor++
       const previous = dependencyHistory[index]
-      const changed = previous === undefined || deps === undefined || deps.length !== previous.length
-        || deps.some((dep, position) => !Object.is(dep, previous[position]))
+      const changed = previous === undefined || deps === undefined || deps.length !== previous.length || deps.some((dep, position) => !Object.is(dep, previous[position]))
       dependencyHistory[index] = deps
       if (changed) effects.push(run)
     },
@@ -49,14 +71,21 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {})
     bind(namespace) { return key => dictionaries.get(namespace)?.[active]?.[key] ?? key },
   }
   let registration
+  const configForms = { get(id) { assert.equal(id, 'computer-use-safe-win'); return form } }
   const sandbox = {
     navigator: { language: locale },
-    confirm: () => true,
+    __configForms: configForms,
+    __normalizeAllowedApps(source) {
+      const entries = source.split(/[\r\n,;]+/).map(value => value.trim()).filter(Boolean)
+      if (entries.length > 64) throw new Error('allowlist cannot contain more than 64 applications')
+      if (entries.some(value => !/^[\w.-]{1,128}\.exe$/i.test(value) || /powershell|cmd|dsh/i.test(value))) throw new Error('invalid or forbidden executable name')
+      return [...new Set(entries.map(value => value.toLowerCase()))]
+    },
     setTimeout,
     fetch: async (path, options) => {
       seen.push({ path, options })
       const value = await respond(path, options)
-      return value instanceof Error ? value : { ok: true, json: async () => value }
+      return value instanceof Error ? value : { ok: value?.ok !== false, json: async () => value }
     },
     window: { confirm: () => true, __ModuleLoader__: { load(value) { registration = value } } },
   }
@@ -68,9 +97,8 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {})
     assert.equal(specifier, 'react', 'the artifact may request only the seeded React module')
     return react
   })
-  const scope = { slots, locale: localeService, effect: run => { run(); return () => {} } }
-  namespace.apply(scope)
-  assert.equal(deferredSlot.has('settings.section'), true, 'registration waits for the Settings section slot')
+  namespace.apply({ slots, locale: localeService, configForms, effect: run => { run(); return () => {} } })
+  assert.equal(deferredSlot.has('settings.section'), true)
   for (const register of deferredSlot.values()) register()
 
   const settle = async () => { for (let turn = 0; turn < 5; turn += 1) await new Promise(resolve => setImmediate(resolve)) }
@@ -78,9 +106,8 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {})
     cursor = 0
     effectCursor = 0
     effects.length = 0
-    // The DSH renderer passes a translation function for options.locale.
     const t = key => dictionaries.get('computerUseSafeWin')?.[active]?.[key] ?? key
-    const element = registered[0].Component({ close() {}, t })
+    const element = registered[0].Component({ close() {}, t, configForms })
     for (const effect of effects) effect()
     return element
   }
@@ -95,46 +122,90 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent } = {})
     return element
   }
   const press = async (element, label) => {
-    const button = element.children.find(child => child.type === 'div').children
-      .find(child => JSON.stringify(child.props).includes(label))
+    const button = findElement(element, node => node.type === 'button' && JSON.stringify(node.children).includes(label))
     assert.ok(button, `no ${label} button`)
     await button.props.onClick()
-    await new Promise(resolve => setImmediate(resolve))
+    await settle()
   }
-  return { namespace, registered, render, press, seen, spec: registered[0].spec }
+  return { namespace, registered, render, press, seen, spec: registered[0].spec, form }
 }
 
 const textOf = element => JSON.stringify(element)
+function findElement(node, predicate) {
+  if (!node || typeof node !== 'object') return undefined
+  if (predicate(node)) return node
+  for (const child of node.children ?? []) {
+    const found = findElement(child, predicate)
+    if (found) return found
+  }
+  return undefined
+}
 
-test('the shipped client half registers a Settings section and renders its driver panel', async () => {
+test('the shipped client half registers a Settings section and renders driver and config controls', async () => {
   const page = await evaluate()
-  assert.deepEqual([...page.namespace.inject].sort(), ['locale', 'slots'])
-  assert.equal(page.registered.length, 1)
-  // A first-class Settings nav entry, not a block inside the Plugins page.
+  assert.deepEqual([...page.namespace.inject].sort(), ['configForms', 'locale', 'slots'])
   assert.equal(page.spec.name, 'settings.section')
   assert.equal(page.spec.id, 'computer-use-safe-win')
-  assert.equal(typeof page.spec.order, 'number')
-  assert.equal(typeof page.spec.label, 'function', 'the nav label must be localized')
   assert.equal(page.spec.label(), '电脑操控')
   const text = textOf(await page.render())
+  assert.match(text, /观察配置/)
+  assert.match(text, /观察功能已关闭/)
+  assert.match(text, /允许的应用/)
   assert.match(text, /Cua Driver/)
-  assert.match(text, /先安装受管驱动/)
-  assert.doesNotMatch(text, /undefined/)
-  assert.match(text, /测试驱动/)
-  assert.match(text, /安装驱动/)
   assert.match(text, /未安装 · 目标版本: 0\.28\.0/)
   assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
 })
 
-test('the Settings nav label follows the active locale', async () => {
-  assert.equal((await evaluate({ locale: 'en-US' })).spec.label(), 'Computer Use')
+test('the Settings nav label follows the active locale and English UI is complete', async () => {
+  const page = await evaluate({ locale: 'en-US' })
+  assert.equal(page.spec.label(), 'Computer Use')
+  const text = textOf(await page.render())
+  assert.match(text, /Observation settings/)
+  assert.match(text, /Allowed applications/)
 })
 
-test('opening the settings page tests status once and reports the pinned target version', async () => {
+test('persistent GUI settings submit an atomic revision-fenced Host mutation', async () => {
+  const form = configForm({ revision: 7 })
+  const page = await evaluate({ form, respond: async path => path.endsWith('/validate-config') ? validConfig : absent })
+  const element = await page.render()
+  const submit = findElement(element, node => node.type === 'form')
+  assert.ok(submit)
+  await submit.props.onSubmit({ preventDefault() {}, currentTarget: { elements: { enabled: { checked: false } } } })
+  assert.equal(form.writes.length, 1)
+  assert.equal(form.writes[0].expectedRevision, 7)
+  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
+  assert.equal(JSON.parse(page.seen[1].options.body).enabled, false)
+  assert.equal(form.writes[0].ops.length, 2)
+  assert.equal(form.writes[0].ops[0].path[0], 'allowedApps')
+  assert.equal(form.writes[0].ops[0].value.length, 0)
+  assert.equal(form.writes[0].ops[1].path[0], 'enabled')
+  assert.equal(form.writes[0].ops[1].value, false)
+  assert.match(textOf(await page.render()), /Host 已接受配置并完成持久化/sg)
+})
+
+test('GUI settings remain disabled for memory-mode and unavailable forms', async () => {
+  for (const form of [configForm({ mode: 'memory', writable: false }), configForm({ status: 'unavailable', writable: false })]) {
+    const page = await evaluate({ form })
+    const text = textOf(await page.render())
+    assert.match(text, /当前连接不可写|Host 配置不可用|This connection cannot write/)
+    const submit = findElement(await page.render(), node => node.type === 'form')
+    if (form.getSnapshot().status !== 'ready') assert.equal(submit, undefined)
+    else assert.equal(findElement(submit, node => node.type === 'button')?.props.disabled, true)
+  }
+})
+
+test('GUI settings surface Host refusal without claiming success', async () => {
+  const form = configForm({ accept: false })
+  const page = await evaluate({ locale: 'en-US', form, respond: async path => path.endsWith('/validate-config') ? validConfig : absent })
+  const submit = findElement(await page.render(), node => node.type === 'form')
+  await submit.props.onSubmit({ preventDefault() {}, currentTarget: { elements: { enabled: { checked: false } } } })
+  assert.match(textOf(await page.render()), /Settings save failed or conflicted/)
+})
+
+test('opening settings checks driver status and refresh gives visible feedback', async () => {
   const page = await evaluate({ locale: 'en-US' })
   const text = textOf(await page.render())
-  assert.match(text, /Test driver/)
-  assert.match(text, /Install driver/)
+  assert.match(text, /Refresh driver status/)
   assert.match(text, /Not installed/)
   assert.match(text, /0\.28\.0/)
   assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
@@ -143,18 +214,17 @@ test('opening the settings page tests status once and reports the pinned target 
 test('the panel is not registered as a Plugins page block any more', async () => {
   const page = await evaluate()
   assert.notEqual(page.spec.name, 'plugins.bundle.config')
-  assert.equal(page.spec.key, undefined, 'a Settings section is keyed by id, not by bundle package name')
+  assert.equal(page.spec.key, undefined)
 })
 
-test('the install button posts an explicit same-origin confirmation and re-tests', async () => {
+test('the install button posts explicit same-origin confirmation and re-tests', async () => {
   let installed = false
   const page = await evaluate({ locale: 'en-US', respond: async path => {
     if (path.endsWith('/install')) { installed = true; return present }
     return installed ? present : absent
   } })
   await page.render()
-  const element = await page.render()
-  await page.press(element, 'Install driver')
+  await page.press(await page.render(), 'Install driver')
   const install = page.seen.find(call => call.path.endsWith('/install'))
   assert.equal(install.options.method, 'POST')
   assert.equal(install.options.headers['x-computer-use-confirm'], 'install-pinned-driver')
@@ -162,12 +232,10 @@ test('the install button posts an explicit same-origin confirmation and re-tests
 })
 
 test('a refused installation surfaces the Host error without claiming success', async () => {
-  const page = await evaluate({ locale: 'en-US', respond: async path => {
-    if (path.endsWith('/install')) return Object.assign(new Error('local browser required'), { ok: false, json: async () => ({ error: 'Driver installation requires the local authenticated browser' }) })
-    return absent
-  } })
+  const page = await evaluate({ locale: 'en-US', respond: async path => path.endsWith('/install')
+    ? Object.assign(new Error('local browser required'), { ok: false, json: async () => ({ error: 'Driver installation requires the local authenticated browser' }) })
+    : absent })
   await page.render()
-  const element = await page.render()
-  await page.press(element, 'Install driver')
+  await page.press(await page.render(), 'Install driver')
   assert.match(textOf(await page.render()), /local authenticated browser/)
 })

@@ -17,6 +17,7 @@
     - 注意本地浏览器判定读的是 **`Host` 头**，不是 `request.url`：DSH 的 Connection 网桥把每条路由请求都构造在合成的 `http://dsh.internal` 源上，据此判定会永远失败。
   - 安装包为官方 `cua-driver-rs-<版本>-windows-<架构>-binary.zip`，按固定 SHA-256 校验后只解出 `cua-driver.exe` 与 `cua-driver-uia.exe`；随包的原生 SDK、鼠标指针主题与头文件不会装入受管目录（`.node`/`.dll` 已由 `@trycua/cua-driver` 依赖提供）。
   - 安装完成后需要另行把 `config.enabled` 置为 true 并配置 `allowedApps`，观察工具才会注册；安装本身不启动 worker、不枚举桌面。默认 patch 即 `enabled: false`。
+- `enabled` 和 `allowedApps` 均通过 Host 的 volatile 配置表单写入；侧栏保存前由 Host 校验完整草稿，再使用当前 revision 原子提交；冲突或只读 profile 不会显示为保存成功，内存/只读 profile 或表单不可用时禁用写入。
   - 插件名称、说明与图标来自 `locale/*.json` 与 `icon.svg`，因此列表里显示为本地化标题而不是包名。
 - 旧 Notepad 只读验收及 helper mock 测试属于旧后端，不是 Cua 验收结果。保留的未跟踪 `scripts/verify-live-inspect.mjs` 仍引用 helper，因用户要求不修改、不提交且不可运行。
 

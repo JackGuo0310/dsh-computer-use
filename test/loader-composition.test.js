@@ -10,6 +10,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as Plugin from '../src/plugin.js'
+import { configuredApps } from '../src/policy.js'
 
 const target = {
   windowId: 4242n, pid: 1234, app: 'notepad.exe', title: 'Untitled - Notepad',
@@ -25,33 +26,31 @@ async function boot({ allowedApps = ['notepad.exe'], runtimeFactory } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-cua-'))
   const configPath = join(root, 'cordis.yml')
   let runtime
+  const adapter = {
+    name: 'computer-use-safe-win-test-adapter',
+    inject: ['computerUse', 'tools', 'systemPrompt'],
+    apply: async ctx => Plugin.startSafeWinProvider(ctx, {
+      allowedApps: configuredApps(allowedApps),
+      startRuntime: async signal => {
+        signal.throwIfAborted()
+        runtime = runtimeFactory ? await runtimeFactory() : {
+          async listTargets(apps) { assert.ok(apps.has('notepad.exe')); return [target] },
+          async observe() { return snapshot },
+          async close() {},
+        }
+        return runtime
+      },
+    }),
+  }
   const modules = new Map([
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
-    ['dsh-computer-use-safe-win', {
-      ...Plugin,
-      inject: ['computerUse', 'tools', 'systemPrompt'],
-      apply: async ctx => { await Plugin.startSafeWinProvider(ctx, {
-        allowedApps: new Set(allowedApps),
-        startRuntime: async signal => {
-          signal.throwIfAborted()
-          runtime = runtimeFactory ? await runtimeFactory() : {
-            async listTargets(apps) { assert.ok(apps.has('notepad.exe')); return [target] },
-            async observe() { return snapshot },
-            async close() {},
-          }
-          return runtime
-        },
-      }) },
-    }],
+    ['dsh-computer-use-safe-win', adapter],
   ])
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: 'dsh-computer-use-safe-win'",
-    '  config:',
-    '    enabled: true',
-    `    allowedApps: ${JSON.stringify(allowedApps)}`,
     '',
   ].join('\n'))
   const registrations = []
@@ -94,9 +93,9 @@ test('unloading through the Loader releases the provider slot', async () => {
   assert.deepEqual(registrations, [])
 })
 
-test('empty and forbidden allowlists are rejected before load', async () => {
-  await assert.rejects(boot({ allowedApps: [] }), /allowlist/)
-  await assert.rejects(boot({ allowedApps: ['powershell.exe'] }), /forbidden application/)
+test('invalid allowlists are rejected before a worker is started', () => {
+  assert.throws(() => configuredApps([]), /nonempty executable allowlist/)
+  assert.throws(() => configuredApps(['powershell.exe']), /forbidden application/)
 })
 
 test('the real tool registry lists and observes only the selected Cua window', async () => {

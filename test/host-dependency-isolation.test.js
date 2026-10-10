@@ -49,7 +49,7 @@ test('shipped runtime source never imports a DSH host package', async () => {
     for (const line of importLine) {
       assert.doesNotMatch(
         line,
-        /from\s+['"]@deepseek-ai\//,
+        /from\s+['"]@deepseek-ai\/(?!schemastery(?:['"]|\/))/, // permit only the schema helper
         `${file} imports a DSH host package at runtime: ${line.trim()}`,
       )
     }
@@ -62,6 +62,8 @@ test('the plugin entry loads with no DSH host package resolvable', async () => {
   const entry = await import('../src/plugin.js')
   assert.equal(typeof entry.apply, 'function')
   assert.equal(typeof entry.startSafeWinProvider, 'function')
+  assert.equal(typeof entry.Config.toJSON, 'function', 'Settings requires a serializable Schemastery schema')
+  assert.deepEqual(Object.keys(entry.Config.dict).sort(), ['allowedApps', 'enabled'])
 })
 
 test('compiled parameters match the host defineTool projection', async () => {

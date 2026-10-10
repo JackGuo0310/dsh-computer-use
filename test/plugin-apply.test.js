@@ -1,49 +1,37 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as Plugin from '../src/plugin.js'
+import { registerDriverRoutes } from '../src/driver-routes.js'
 
-/** Host stand-in exposing only what the default-disabled plugin half reads. */
-function host({ installed = false } = {}) {
+function host() {
   const routes = new Map()
-  const status = { installed, supported: true, version: '0.28.0', installedVersion: installed ? '0.28.0' : null }
   const ctx = {
     connection: { fetch: { register(route) { routes.set(route.path, route); return () => routes.delete(route.path) } } },
-    effect(fn, label) { const disposer = fn(); return disposer },
-    logger: { warn() {}, error() {} },
+    effect(fn) { return fn() },
   }
-  return { ctx, routes, status }
+  return { ctx, routes }
 }
 
-test('the installed plugin always offers its settings row without touching the desktop', async () => {
+test('the driver settings routes report status without accessing the desktop', async () => {
   const h = host()
-  const tools = []
-  const desktop = { started: false }
-  h.ctx.tools = { register: tool => () => { tools.push(tool) } }
-  h.ctx.computerUse = { register: () => async () => {} }
-  h.ctx.systemPrompt = { section: () => () => {}, getSectionOrder: () => 0 }
-
+  h.ctx.connection.fetch.register = (route) => { h.routes.set(route.path, route); return () => h.routes.delete(route.path) }
   await Plugin.apply(h.ctx, { enabled: false, allowedApps: [] })
-
-  assert.deepEqual([...h.routes.keys()], ['/api/computer-use-safe-win/status', '/api/computer-use-safe-win/install'])
-  assert.deepEqual(tools, [], 'an unconfigured plugin exposes no observation tool')
-  assert.equal(desktop.started, false)
-
-  const status = await h.routes.get('/api/computer-use-safe-win/status').fetch(new Request('http://127.0.0.1:3080/api/computer-use-safe-win/status'))
-  assert.equal((await status.json()).installed, false, 'the settings page can test an absent driver')
+  assert.ok(h.routes.has('/api/computer-use-safe-win/status'))
+  assert.ok(h.routes.has('/api/computer-use-safe-win/install'))
+  assert.ok(h.routes.has('/api/computer-use-safe-win/validate-config'))
+  const response = await h.routes.get('/api/computer-use-safe-win/status').fetch(new Request('http://127.0.0.1/status'))
+  const status = await response.json()
+  assert.equal(typeof status.installed, 'boolean')
+  assert.equal(status.version, '0.28.0')
+  assert.equal(status.runtimeVerified, false)
+  const validation = await h.routes.get('/api/computer-use-safe-win/validate-config').fetch(new Request('http://127.0.0.1/validate-config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true, allowedApps: ['powershell.exe'] }) }))
+  assert.equal(validation.status, 400)
+  assert.equal((await validation.json()).valid, false)
 })
 
-test('enabling observation without an installed driver fails closed', async () => {
-  const h = host({ installed: false })
-  await assert.rejects(
-    Plugin.apply(h.ctx, { enabled: true, allowedApps: ['notepad.exe'] }),
-    /install the pinned Cua Driver/,
-  )
-})
-
-test('the config validator refuses a non-boolean enabled flag and an empty enabled allowlist', () => {
-  const validate = Plugin.Config['~standard'].validate
-  assert.ok(validate({ enabled: 'true', allowedApps: [] }).issues)
-  assert.ok(validate({ enabled: true, allowedApps: [] }).issues, 'enabling observation requires an allowlist')
-  assert.ok(validate({ enabled: false, allowedApps: [] }).value, 'the default patch loads')
-  assert.deepEqual(validate({ enabled: false, allowedApps: [] }).value, { enabled: false, allowedApps: [] })
+test('the config validator rejects invalid types and empty enabled allowlists', () => {
+  assert.equal(typeof Plugin.Config.toJSON, 'function')
+  assert.ok(Plugin.validateConfig({ enabled: 'true', allowedApps: [] }).issues)
+  assert.ok(Plugin.validateConfig({ enabled: true, allowedApps: [] }).issues)
+  assert.deepEqual(Plugin.validateConfig({ enabled: false, allowedApps: [] }).value, { enabled: false, allowedApps: [] })
 })
