@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import { getDriverPaths, getDriverStatus } from './driver-install.js'
 import { buildPrivateWorkerOptions, STARTUP_TIMEOUT_MS } from './driver-options.js'
 import { ACTION_TIMEOUT_MS, OperationQueue, withTimeout } from './operation-queue.js'
-import { executableFromLaunchPath } from './policy.js'
+import { executableFromApp } from './policy.js'
 import { MAX_ELEMENTS, projectSnapshot } from './snapshot-policy.js'
 import {
   ActionTarget,
@@ -92,7 +92,7 @@ export class CuaRuntime {
     const app = apps.apps.find(item => item.pid === pid && item.running)
     const window = windows.windows.find(item => item.pid === pid && item.windowId === windowId)
     if (!app || !window) throw new Error('Cua window process identity is no longer available')
-    const filename = executableFromLaunchPath(app.launchPath)
+    const filename = executableFromApp(app)
     if (filename === undefined) throw new Error('Cua did not provide a verifiable Windows process executable filename')
     return Object.freeze({
       pid,
@@ -112,7 +112,7 @@ export class CuaRuntime {
       const allowed = new Map()
       for (const app of apps) {
         if (!app.running) continue
-        const name = executableFromLaunchPath(app.launchPath)
+        const name = executableFromApp(app)
         if (name !== undefined && names.has(name)) allowed.set(app.pid, name)
       }
       const { windows } = await this.#driver.listWindows({ onScreenOnly: true })

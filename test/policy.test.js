@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { configuredApps, executableFromLaunchPath, executableName, validateWindow } from '../src/policy.js'
+import { configuredApps, executableFromApp, executableFromLaunchPath, executableName, validateWindow } from '../src/policy.js'
 
 const valid = () => ({
   pid: 101,
@@ -77,4 +77,19 @@ test('one executable-name definition serves both the allowlist and the adapter',
   assert.equal(executableName('Notepad.EXE'), 'notepad.exe')
   assert.equal(executableName('notes.txt'), undefined)
   assert.equal(executableName('C:\\Windows\\notepad.exe'), undefined, 'a path is not a filename')
+})
+
+test('an app with no launch path still resolves through its reported name', () => {
+  // Observed live: Notepad on Windows 11 is listed with `name` only, no launchPath.
+  assert.equal(executableFromApp({ pid: 1, name: 'Notepad.exe', running: true, kind: 'desktop' }), 'notepad.exe')
+  assert.equal(executableFromApp({ pid: 1, name: 'Notepad.exe', launchPath: 'C:\\Windows\\System32\\notepad.exe' }), 'notepad.exe')
+  assert.equal(executableFromApp({ pid: 1, name: 'Safari', launchPath: '/Applications/Safari.app/Contents/MacOS/Safari' }), undefined)
+  assert.equal(executableFromApp({ pid: 1, name: 'Notepad' }), undefined, 'a display name is not an executable filename')
+  assert.equal(executableFromApp(undefined), undefined)
+})
+
+test('an app whose name and launch path disagree is refused, not resolved', () => {
+  // Accepting either field would make the allowlist decision depend on which one won.
+  assert.equal(executableFromApp({ pid: 1, name: 'notepad.exe', launchPath: 'C:\\other\\calc.exe' }), undefined)
+  assert.equal(executableFromApp({ pid: 1, name: 'calc.exe', launchPath: 'C:\\Windows\\notepad.exe' }), undefined)
 })

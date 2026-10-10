@@ -33,6 +33,25 @@ export function executableFromLaunchPath(launchPath) {
   return executableName(launchPath.split(/[\\/]/).pop())
 }
 
+/**
+ * Resolve the executable filename the allowlist matches for one listed app.
+ *
+ * The driver does not always report `launchPath`: packaged Windows applications
+ * (Notepad on Windows 11, for one) appear with only `name` set to the executable
+ * filename. Either source may therefore supply the filename, but when both are
+ * present and disagree the app is refused rather than resolved to one of them,
+ * because the allowlist decision would otherwise depend on which field won.
+ *
+ * @param app - `AppInfo` entry from the driver's app listing.
+ * @returns The lowercased filename, or `undefined` when it cannot be resolved.
+ */
+export function executableFromApp(app) {
+  const fromPath = executableFromLaunchPath(app?.launchPath)
+  const fromName = executableName(app?.name)
+  if (fromPath !== undefined && fromName !== undefined) return fromPath === fromName ? fromPath : undefined
+  return fromPath ?? fromName
+}
+
 function appName(value) {
   const name = executableName(value)
   if (name === undefined) throw new Error('invalid executable name')
