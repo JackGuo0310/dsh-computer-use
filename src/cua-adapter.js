@@ -2,8 +2,11 @@ import { resolve } from 'node:path'
 import { getDriverPaths, getDriverStatus } from './driver-install.js'
 import { buildPrivateWorkerOptions, STARTUP_TIMEOUT_MS } from './driver-options.js'
 import { ACTION_TIMEOUT_MS, OperationQueue, withTimeout } from './operation-queue.js'
+import { executableFromLaunchPath } from './policy.js'
 import { MAX_ELEMENTS, projectSnapshot } from './snapshot-policy.js'
-import { CuaDriver } from '@trycua/cua-driver'
+import {
+  CuaDriver,
+} from '@trycua/cua-driver'
 
 function assertDriver(driver) {
   for (const method of ['listApps', 'listWindows', 'getWindowState', 'verifyState', 'shutdown']) {
@@ -57,12 +60,12 @@ export class CuaRuntime {
     const app = apps.apps.find(item => item.pid === pid && item.running)
     const window = windows.windows.find(item => item.pid === pid && item.windowId === windowId)
     if (!app || !window) throw new Error('Cua window process identity is no longer available')
-    const filename = app.launchPath?.split(/[\\/]/).pop()
-    if (!filename || !/[\\/]/.test(app.launchPath) || !/^[\\w.-]{1,128}\\.exe$/i.test(filename)) throw new Error('Cua did not provide a verifiable Windows process executable filename')
+    const filename = executableFromLaunchPath(app.launchPath)
+    if (filename === undefined) throw new Error('Cua did not provide a verifiable Windows process executable filename')
     return Object.freeze({
       pid,
       windowId,
-      app: filename.toLowerCase(),
+      app: filename,
       title: window.title,
       bounds: Object.freeze({ ...window.bounds }),
       isOnScreen: window.isOnScreen,
@@ -74,13 +77,22 @@ export class CuaRuntime {
     const names = new Set([...allowedApps].map(name => name.toLowerCase()))
     return this.#enqueue(async () => {
       const { apps } = await this.#driver.listApps({})
-      const running = apps.filter(app => app.running && app.launchPath && /[\\/]/.test(app.launchPath) && /^[\\w.-]{1,128}\\.exe$/i.test(app.launchPath.split(/[\\/]/).pop()) && names.has(app.launchPath.split(/[\\/]/).pop().toLowerCase()))
-      const windows = await this.#driver.listWindows({ onScreenOnly: true })
+      const allowed = new Map()
+      for (const app of apps) {
+        if (!app.running) continue
+        const name = executableFromLaunchPath(app.launchPath)
+        if (name !== undefined && names.has(name)) allowed.set(app.pid, name)
+      }
+      const { windows } = await this.#driver.listWindows({ onScreenOnly: true })
       const targets = []
-      for (const window of windows.windows) {
-        if (!running.some(app => app.pid === window.pid) || !Number.isInteger(window.pid) || window.pid <= 0) continue
-        const executable = running.find(app => app.pid === window.pid).launchPath.split(/[\\/]/).pop().toLowerCase()
-        targets.push(Object.freeze({ pid: window.pid, windowId: window.windowId, app: executable, title: window.title, bounds: { ...window.bounds }, isOnScreen: window.isOnScreen, minimized: window.minimized === true }))
+      for (const window of windows) {
+        if (!Number.isInteger(window.pid) || window.pid <= 0) continue
+        const name = allowed.get(window.pid)
+        if (name === undefined) continue
+        targets.push(Object.freeze({
+          pid: window.pid, windowId: window.windowId, app: name, title: window.title,
+          bounds: { ...window.bounds }, isOnScreen: window.isOnScreen, minimized: window.minimized === true,
+        }))
       }
       return targets
     }, signal)
@@ -100,15 +112,6 @@ export class CuaRuntime {
         maxDimension: 4096,
       })
       return Object.freeze({ target: current, ...projectSnapshot(state, target, { includeScreenshot }) })
-    }, signal)
-  }
-
-  performApprovedClick(target, token, signal) {
-    if (typeof token !== 'string' || !token || token.length > 1024) return Promise.reject(new Error('invalid Cua element token'))
-    return this.#enqueue(async () => {
-      const current = await this.#window(target.pid, target.windowId)
-      if (current.app !== target.app || current.title !== target.title || !current.isOnScreen || current.minimized) throw new Error('Cua window identity changed before action')
-      throw new Error('Cua 0.28.0 does not expose a verified per-action background semantic click contract; refusing to deliver input')
     }, signal)
   }
 

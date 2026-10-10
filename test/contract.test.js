@@ -12,7 +12,12 @@ test('the Cua adapter uses only the SDK-managed private worker topology', async 
   assert.match(source, /CuaDriver\.createPrivateWorker/)
   assert.doesNotMatch(source, /CuaDriver\.create\(/)
   assert.doesNotMatch(source, /callTool\s*\(/)
-  assert.match(source, /does not expose a verified per-action background semantic click contract/)
+})
+
+test('the adapter resolves allowlisted executables through the shared policy', async () => {
+  const source = await readFile(adapterPath, 'utf8')
+  assert.match(source, /executableFromLaunchPath/)
+  assert.doesNotMatch(source, /\\\\\.exe/)
 })
 
 test('the plugin exposes only curated listing and observation tools', async () => {

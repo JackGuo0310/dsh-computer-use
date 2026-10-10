@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { configuredApps, validateWindow } from '../src/policy.js'
+import { configuredApps, executableFromLaunchPath, executableName, validateWindow } from '../src/policy.js'
 
 const valid = () => ({
   pid: 101,
@@ -56,4 +56,25 @@ test('window validation does not mutate supplied Cua data', () => {
   const identity = validateWindow(window, configuredApps(['fixture.exe']))
   assert.deepEqual(window.bounds, originalBounds)
   assert.notEqual(identity.bounds, window.bounds)
+})
+
+test('a real Windows launch path yields its executable filename', () => {
+  // Regression: the adapter once compared basenames against a regex written with
+  // doubled escapes, whose character class accepted only `\`, `w`, `.` and `-`.
+  // Every real application was then filtered out, so listing returned nothing.
+  assert.equal(executableFromLaunchPath('C:\\Windows\\System32\\notepad.exe'), 'notepad.exe')
+  assert.equal(executableFromLaunchPath('C:/Program Files/App/some-app.exe'), 'some-app.exe')
+  assert.equal(executableFromLaunchPath('C:\\Apps\\Fixture.EXE'), 'fixture.exe')
+})
+
+test('an unusable launch path yields no filename instead of a partial match', () => {
+  for (const path of ['notepad.exe', 'C:\\Windows\\System32\\notepad', 'C:\\Windows\\.exe', '', 42, undefined, null]) {
+    assert.equal(executableFromLaunchPath(path), undefined, String(path))
+  }
+})
+
+test('one executable-name definition serves both the allowlist and the adapter', () => {
+  assert.equal(executableName('Notepad.EXE'), 'notepad.exe')
+  assert.equal(executableName('notes.txt'), undefined)
+  assert.equal(executableName('C:\\Windows\\notepad.exe'), undefined, 'a path is not a filename')
 })
