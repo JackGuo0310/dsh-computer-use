@@ -5,6 +5,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const STATUS = '/api/computer-use-safe-win/status'
     const INSTALL = '/api/computer-use-safe-win/install'
+    const REGISTRY_SETUP = '/api/computer-use-safe-win/registry-setup'
     const CANDIDATES = '/api/computer-use-safe-win/running-apps'
     const REQUIREMENTS = '/api/computer-use-safe-win/requirements'
     /** The package providing the exclusive computer-use provider registry. */
@@ -15,12 +16,12 @@ window.__ModuleLoader__.load({
     const PACKAGE_NAME = 'dsh-computer-use-safe-win'
     // Kept in lockstep with package.json by `test/client-bundle.test.js`: the
     // section has no build step that could inject the manifest's version.
-    const PLUGIN_VERSION = '0.1.11'
+    const PLUGIN_VERSION = '0.1.12'
     const EXECUTABLE_NAME = /^[\w.-]{1,128}\.exe$/i
     const EXECUTABLE_PATH = /^[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n]+[\\/])*[^\\/:*?"<>|\r\n]+\.exe$/i
     const TEXT = {
-      zh: { nav: '电脑操控', title: 'Cua Driver', registryTitle: '未挂载独占注册表（可选）', registryBody: '本插件可独立运行。若在 profile 里挂载 @deepseek-ai/dsh-computer-use，本插件会自动取得独占槽位，避免与其它 computer-use 提供者同时控制桌面；该包没有 bundle patch，DSH 插件管理器无法安装，只能在 profile 的 cordis.patch.yml 里手动挂载。', statusUnknown: '驱动状态未知（Host 半未激活）', hostInactive: 'Host 半未激活或路由不可用', driverStatus: '受管驱动状态', driverNote: '安装与来源', intro: '先安装受管驱动并确认状态。安装不会开启桌面观察；保存配置也不会绕过平台、驱动或白名单检查。', test: '刷新驱动状态', refresh: '正在检查…', checked: '状态已刷新', install: '安装驱动', confirm: '从 trycua 官方发行版下载并安装固定版本驱动？', busy: '正在安装…', absent: '未安装', ready: '受管驱动已安装（未启动验证）', unsupported: '当前系统不支持', version: '受管版本', expected: '目标版本', error: '请求失败', remote: '仅本机浏览器允许安装；远程连接请在主机本机打开设置页。', configTitle: '观察配置', configIntro: '只有白名单里的应用才能被列举和观察。每一项可以是可执行文件名（如 notepad.exe，更宽松）或绝对路径（如 C:\\Program Files\\App\\app.exe，更精确）。保存后立即对后续调用生效，无需重启。请只添加可信应用。', enabled: '启用窗口观察', allowlist: '允许的应用白名单', addApp: '添加应用', removeApp: '删除', appPlaceholder: 'notepad.exe 或 C:\\Program Files\\App\\app.exe', emptyList: '白名单为空；启用观察前至少添加一个应用。', pickApp: '从运行中的应用选择', picking: '正在读取…', candidatesTitle: '正在运行的应用', candidatesEmpty: '没有可添加的应用。', candidatesNote: '有路径时默认添加绝对路径，更精确；没有路径的应用只能按文件名添加。', add: '添加', save: '保存配置', saving: '正在保存…', loading: '正在读取 Host 配置…', unavailable: 'Host 配置不可用；请在本机设置页重试。', readonly: '当前连接不可写。请使用 DSH 主机本机浏览器修改持久配置。', saved: 'Host 已接受配置并完成持久化；对后续调用立即生效。', invalid: '请检查配置', disabled: '观察功能已关闭。', enabledStatus: '观察功能已启用；运行时及驱动仍需单独验证。', configError: '配置保存失败或发生版本冲突；请刷新页面后重试。' },
-      en: { nav: 'Computer Use', title: 'Cua Driver', registryTitle: 'Exclusive registry not mounted (optional)', registryBody: 'This plugin runs standalone. Mount @deepseek-ai/dsh-computer-use in the profile and this plugin takes the exclusive computer-use slot, so a second provider can never share the desktop. That package ships no bundle patch, so the DSH plugin manager cannot install it; mount it in the profile cordis.patch.yml.', statusUnknown: 'Driver status unknown (Host half inactive)', hostInactive: 'The Host half is not active or its routes are unavailable', driverStatus: 'Managed driver status', driverNote: 'Installation and origin', intro: 'Install and verify the managed driver status. Installation never enables observation; saving configuration does not bypass platform, driver, or allowlist checks.', test: 'Refresh driver status', refresh: 'Checking…', checked: 'Status refreshed', install: 'Install driver', confirm: 'Download and install the pinned driver from the official trycua release?', busy: 'Installing…', absent: 'Not installed', ready: 'Managed driver installed (runtime not tested)', unsupported: 'Unsupported system', version: 'Managed version', expected: 'Target version', error: 'Request failed', remote: 'Installation is restricted to the local browser; open settings on the Host.', configTitle: 'Observation settings', configIntro: 'Only allowlisted applications can be listed or observed. Each entry is either an executable filename (notepad.exe, broader) or an absolute path (C:\\Program Files\\App\\app.exe, stricter). A save applies to later calls without a restart. Add only trusted applications.', enabled: 'Enable window observation', allowlist: 'Allowed applications', addApp: 'Add application', removeApp: 'Remove', appPlaceholder: 'notepad.exe or C:\\Program Files\\App\\app.exe', emptyList: 'The allowlist is empty; add at least one application before enabling observation.', pickApp: 'Choose a running application', picking: 'Reading…', candidatesTitle: 'Running applications', candidatesEmpty: 'No application is available to add.', candidatesNote: 'Applications that report a path are added by absolute path, which is stricter. The rest can only be added by filename.', add: 'Add', save: 'Save settings', saving: 'Saving…', loading: 'Loading Host settings…', unavailable: 'Host settings are unavailable; retry from the local settings page.', readonly: 'This connection cannot write persistent settings. Use the Host’s local browser.', saved: 'Host accepted and persisted the settings; they apply to later calls at once.', invalid: 'Check the settings', disabled: 'Observation is disabled.', enabledStatus: 'Observation is enabled; runtime and driver behavior still require separate verification.', configError: 'Settings save failed or conflicted; reload the page and retry.' },
+      zh: { nav: '电脑操控', title: 'Cua Driver', registryTitle: '未挂载独占注册表（可选）', registryBody: '本插件可独立运行。若在 profile 里挂载 @deepseek-ai/dsh-computer-use，本插件会自动取得独占槽位，避免与其它 computer-use 提供者同时控制桌面；该包没有 bundle patch，DSH 插件管理器无法安装，只能在 profile 的 cordis.patch.yml 里手动挂载。', statusUnknown: '驱动状态未知（Host 半未激活）', hostInactive: 'Host 半未激活或路由不可用', driverStatus: '受管驱动状态', driverNote: '安装与来源', registryStep1: '① 安装该包（版本按当前 DSH 解析，未写死）', registryStep2: '② 在 profile 的 cordis.patch.yml 中加入这一条（也可用右上角「打开配置文件」）', copy: '复制', copied: '已复制', intro: '先安装受管驱动并确认状态。安装不会开启桌面观察；保存配置也不会绕过平台、驱动或白名单检查。', test: '刷新驱动状态', refresh: '正在检查…', checked: '状态已刷新', install: '安装驱动', confirm: '从 trycua 官方发行版下载并安装固定版本驱动？', busy: '正在安装…', absent: '未安装', ready: '受管驱动已安装（未启动验证）', unsupported: '当前系统不支持', version: '受管版本', expected: '目标版本', error: '请求失败', remote: '仅本机浏览器允许安装；远程连接请在主机本机打开设置页。', configTitle: '观察配置', configIntro: '只有白名单里的应用才能被列举和观察。每一项可以是可执行文件名（如 notepad.exe，更宽松）或绝对路径（如 C:\\Program Files\\App\\app.exe，更精确）。保存后立即对后续调用生效，无需重启。请只添加可信应用。', enabled: '启用窗口观察', allowlist: '允许的应用白名单', addApp: '添加应用', removeApp: '删除', appPlaceholder: 'notepad.exe 或 C:\\Program Files\\App\\app.exe', emptyList: '白名单为空；启用观察前至少添加一个应用。', pickApp: '从运行中的应用选择', picking: '正在读取…', candidatesTitle: '正在运行的应用', candidatesEmpty: '没有可添加的应用。', candidatesNote: '有路径时默认添加绝对路径，更精确；没有路径的应用只能按文件名添加。', add: '添加', save: '保存配置', saving: '正在保存…', loading: '正在读取 Host 配置…', unavailable: 'Host 配置不可用；请在本机设置页重试。', readonly: '当前连接不可写。请使用 DSH 主机本机浏览器修改持久配置。', saved: 'Host 已接受配置并完成持久化；对后续调用立即生效。', invalid: '请检查配置', disabled: '观察功能已关闭。', enabledStatus: '观察功能已启用；运行时及驱动仍需单独验证。', configError: '配置保存失败或发生版本冲突；请刷新页面后重试。' },
+      en: { nav: 'Computer Use', title: 'Cua Driver', registryTitle: 'Exclusive registry not mounted (optional)', registryBody: 'This plugin runs standalone. Mount @deepseek-ai/dsh-computer-use in the profile and this plugin takes the exclusive computer-use slot, so a second provider can never share the desktop. That package ships no bundle patch, so the DSH plugin manager cannot install it; mount it in the profile cordis.patch.yml.', statusUnknown: 'Driver status unknown (Host half inactive)', hostInactive: 'The Host half is not active or its routes are unavailable', driverStatus: 'Managed driver status', driverNote: 'Installation and origin', registryStep1: '1. Install the package (the version is resolved from the running DSH, never pinned here)', registryStep2: '2. Add this row to the profile cordis.patch.yml (the header button "Open config file" works too)', copy: 'Copy', copied: 'Copied', intro: 'Install and verify the managed driver status. Installation never enables observation; saving configuration does not bypass platform, driver, or allowlist checks.', test: 'Refresh driver status', refresh: 'Checking…', checked: 'Status refreshed', install: 'Install driver', confirm: 'Download and install the pinned driver from the official trycua release?', busy: 'Installing…', absent: 'Not installed', ready: 'Managed driver installed (runtime not tested)', unsupported: 'Unsupported system', version: 'Managed version', expected: 'Target version', error: 'Request failed', remote: 'Installation is restricted to the local browser; open settings on the Host.', configTitle: 'Observation settings', configIntro: 'Only allowlisted applications can be listed or observed. Each entry is either an executable filename (notepad.exe, broader) or an absolute path (C:\\Program Files\\App\\app.exe, stricter). A save applies to later calls without a restart. Add only trusted applications.', enabled: 'Enable window observation', allowlist: 'Allowed applications', addApp: 'Add application', removeApp: 'Remove', appPlaceholder: 'notepad.exe or C:\\Program Files\\App\\app.exe', emptyList: 'The allowlist is empty; add at least one application before enabling observation.', pickApp: 'Choose a running application', picking: 'Reading…', candidatesTitle: 'Running applications', candidatesEmpty: 'No application is available to add.', candidatesNote: 'Applications that report a path are added by absolute path, which is stricter. The rest can only be added by filename.', add: 'Add', save: 'Save settings', saving: 'Saving…', loading: 'Loading Host settings…', unavailable: 'Host settings are unavailable; retry from the local settings page.', readonly: 'This connection cannot write persistent settings. Use the Host’s local browser.', saved: 'Host accepted and persisted the settings; they apply to later calls at once.', invalid: 'Check the settings', disabled: 'Observation is disabled.', enabledStatus: 'Observation is enabled; runtime and driver behavior still require separate verification.', configError: 'Settings save failed or conflicted; reload the page and retry.' },
     }
 
     /**
@@ -90,6 +91,8 @@ window.__ModuleLoader__.load({
 .cu-candidateName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary, #b6c2d1); }
 .cu-candidates { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 12px; border: 1px solid var(--dsw-alias-border-l2, #2c3442); border-radius: 12px; }
 .cu-candidates p { margin: 0; }
+.cu-setup { gap: 10px; padding-top: 4px; }
+.cu-code { margin: 0; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2, #2c3442); border-radius: 8px; background: var(--dsw-alias-bg-layer-1, rgba(0, 0, 0, 0.18)); color: var(--dsw-alias-label-secondary, #b6c2d1); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 18px; white-space: pre-wrap; word-break: break-all; }
 .cu-notice { margin: 0; padding: 8px 12px; border: 1px solid var(--dsw-alias-border-l2, #2c3442); border-radius: 8px; background: var(--dsw-alias-bg-layer-2, #161b22); color: var(--dsw-alias-label-secondary, #b6c2d1); font-size: 12px; line-height: 18px; }
 `
     const STYLE_ID = 'dsh-computer-use-safe-win: section styles'
@@ -142,6 +145,8 @@ window.__ModuleLoader__.load({
       const [candidates, setCandidates] = React.useState(null)
       const [candidatesBusy, setCandidatesBusy] = React.useState(false)
       const [registry, setRegistry] = React.useState(null)
+      const [setup, setSetup] = React.useState(null)
+      const [copied, setCopied] = React.useState('')
       const [draftRows, setDraftRows] = React.useState(null)
       const [draftEnabled, setDraftEnabled] = React.useState(null)
       const formRef = React.useRef(null)
@@ -195,6 +200,31 @@ window.__ModuleLoader__.load({
         setDraftRows(null)
         setDraftEnabled(null)
       }, [config.revision])
+      /**
+       * Read the two mounting steps once the plugin manager confirms the registry
+       * is missing. The Host resolves the version from the running DSH, so the
+       * panel never shows a pin that goes stale.
+       */
+      React.useEffect(() => {
+        if (registry?.installed !== false) { setSetup(null); return }
+        let live = true
+        void (async () => {
+          const value = await request(REGISTRY_SETUP)
+          if (live) setSetup(value)
+        })().catch(() => { if (live) setSetup(null) })
+        return () => { live = false }
+      }, [registry])
+      /**
+       * Copy one mounting step to the clipboard. The panel offers the command
+       * rather than running it: the Host plugin manager rolls a bundle-less
+       * install back, and a plugin must not write the profile's patch layer.
+       */
+      async function copy(label, value) {
+        try {
+          await navigator.clipboard.writeText(value)
+          setCopied(label)
+        } catch (cause) { setError(String(cause.message || cause)) }
+      }
 
       /**
        * Download and install the pinned Cua Driver into the managed directory.
@@ -309,7 +339,20 @@ window.__ModuleLoader__.load({
           h('span', { className: 'cu-versionName' }, PACKAGE_NAME),
           h('span', { className: 'cu-versionTag' }, `v${PLUGIN_VERSION}`)),
         registry?.installed === false
-          ? group(t('registryTitle'), h('p', { className: 'cu-desc' }, t('registryBody')))
+          ? group(t('registryTitle'),
+            h('p', { className: 'cu-desc cu-paragraph' }, t('registryBody')),
+            setup === null
+              ? null
+              : h('div', { className: 'cu-rowStack cu-setup' },
+                h('p', { className: 'cu-desc cu-paragraph' }, `${t('driverNote')}: DSH ${setup.dshVersion ?? '?'} → ${setup.spec}`),
+                h('p', { className: 'cu-title' }, t('registryStep1')),
+                h('pre', { className: 'cu-code' }, setup.command),
+                h('div', { className: 'cu-control' },
+                  button(copied === 'command' ? t('copied') : t('copy'), () => void copy('command', setup.command))),
+                h('p', { className: 'cu-title' }, t('registryStep2')),
+                h('pre', { className: 'cu-code' }, setup.patch),
+                h('div', { className: 'cu-control' },
+                  button(copied === 'patch' ? t('copied') : t('copy'), () => void copy('patch', setup.patch)))))
           : null,
         group(t('title'),
           h('div', { className: 'cu-row' },

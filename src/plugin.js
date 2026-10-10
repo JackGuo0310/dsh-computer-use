@@ -3,6 +3,7 @@ import { jsonResponse, jsonHeaders, localBrowserRequest, registerDriverRoutes } 
 import { defineTool } from './tool-def.js'
 import { projectionApplies, projectScreenshots, storeScreenshots } from './screenshot-delivery.js'
 import { SettingsSchema, validateSettingsConfig, validateSettingsDraft } from './settings-validation.js'
+import { registrySetup } from './registry-setup.js'
 
 export const name = 'computer-use-safe-win'
 // `connection` is the authenticated API channel.
@@ -251,6 +252,17 @@ export async function apply(ctx, config) {
       }
     },
   }), 'computer-use-safe-win: validate config')
+  // The optional registry cannot be installed or mounted by a plugin: the Host
+  // plugin manager admits only bundles with a patch file, and a plugin must not
+  // write the profile's patch layer. This route therefore answers with the exact
+  // commands a person runs, resolving the registry version from the running
+  // Harness instead of pinning one in source.
+  ctx.effect(() => ctx.connection.fetch.register({
+    path: '/api/computer-use-safe-win/registry-setup',
+    methods: ['GET'],
+    requestBody: 'buffered',
+    fetch: async () => jsonResponse(await registrySetup({ installed: ctx.get('computerUse') !== undefined })),
+  }), 'computer-use-safe-win: registry setup')
   // Both fields are volatile, so a save commits in place and never re-runs this
   // function. The provider reads the live settings on every call, which is what
   // makes enabling, disabling, and allowlist edits take effect at once.

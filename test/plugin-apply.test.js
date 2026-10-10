@@ -24,6 +24,7 @@ test('the driver settings routes report status without accessing the desktop', a
   assert.ok(h.routes.has('/api/computer-use-safe-win/install'))
   assert.ok(h.routes.has('/api/computer-use-safe-win/validate-config'))
   assert.ok(h.routes.has('/api/computer-use-safe-win/running-apps'), 'the allowlist picker route must be offered')
+  assert.ok(h.routes.has('/api/computer-use-safe-win/registry-setup'), 'the panel must be able to ask how to mount the optional registry')
   const picker = h.routes.get('/api/computer-use-safe-win/running-apps')
   // Reading the running applications enumerates processes, so a request that is
   // not the local browser must be refused before any driver work.

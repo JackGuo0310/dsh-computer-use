@@ -12,6 +12,16 @@ const validConfig = { valid: true, value: { enabled: true, allowedApps: ['notepa
 const REQUIRED_PACKAGE = '@deepseek-ai/dsh-computer-use'
 const registryReady = ['@deepseek-ai/dsh-base', REQUIRED_PACKAGE]
 const registryMissing = ['@deepseek-ai/dsh-base']
+/** What the Host answers when the panel asks how to mount the registry. */
+const registrySetup = {
+  package: REQUIRED_PACKAGE,
+  profile: 'web',
+  dshVersion: '0.2.1-alpha.1',
+  version: '0.2.1-alpha.2',
+  spec: `${REQUIRED_PACKAGE}@0.2.1-alpha.2`,
+  command: `dsh plugin --profile web add ${REQUIRED_PACKAGE}@0.2.1-alpha.2`,
+  patch: `- insert:\n    - id: computer-use\n      name: '${REQUIRED_PACKAGE}'`,
+}
 /** Shape the Host plugin manager returns from `listBundles()`. */
 function bundleList(names) {
   return { ok: true, value: names.map(name => ({ name })) }
@@ -119,14 +129,16 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   }
   let registration
   const configForms = { get(id) { assert.equal(id, 'computer-use-safe-win'); return form } }
+  const clipboard = { written: [], async writeText(value) { clipboard.written.push(value) } }
+  const answer = async (path, options) => path.endsWith('/registry-setup') ? registrySetup : respond(path, options)
   const sandbox = {
-    navigator: { language: locale },
+    navigator: { language: locale, clipboard },
     __configForms: configForms,
     setTimeout,
     crypto: { randomUUID: () => 'request-1' },
     fetch: async (path, options) => {
       seen.push({ path, options })
-      const value = await respond(path, options)
+      const value = await answer(path, options)
       // A bare Error is a transport failure, as `fetch` would throw one.
       if (value instanceof Error && typeof value.json !== 'function') throw value
       const shape = value instanceof Error ? await value.json() : value
@@ -207,7 +219,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     await button.props.onClick()
     await settle()
   }
-  return { namespace, registered, render, press, seen, spec: registered[0].spec, form, adoptManager: () => adoptManager?.(), entry: () => registered[0] }
+  return { namespace, registered, render, press, seen, clipboard, spec: registered[0].spec, form, adoptManager: () => adoptManager?.(), entry: () => registered[0] }
 }
 
 const textOf = element => JSON.stringify(element)
@@ -422,6 +434,20 @@ test('the panel still explains a missing registry while the Host config form is 
   assert.match(text, /未挂载独占注册表/)
   assert.match(text, /正在读取 Host 配置/)
   assert.doesNotMatch(text, /启用窗口观察/, 'the settings form must not offer writes while loading')
+})
+
+test('a missing registry offers the two copy-ready mounting steps', async () => {
+  const page = await evaluate({ registry: registryMissing, respond: async () => absent })
+  const text = textOf(await page.render())
+  assert.match(text, /dsh plugin --profile web add @deepseek-ai\/dsh-computer-use@0\.2\.1-alpha\.2/)
+  assert.match(text, /cordis\.patch\.yml/)
+  assert.match(text, /DSH 0\.2\.1-alpha\.1/)
+  const copyButtons = findElements(await page.render(), node => node.type === 'button' && node.children[0] === '复制')
+  assert.equal(copyButtons.length, 2, 'one copy button per mounting step')
+  await copyButtons[0].props.onClick()
+  await copyButtons[1].props.onClick()
+  assert.deepEqual(page.clipboard.written, [registrySetup.command, registrySetup.patch])
+  assert.match(textOf(await page.render()), /已复制/)
 })
 
 test('the panel adopts the plugin-manager namespace mounted after apply', async () => {

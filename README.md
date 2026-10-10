@@ -54,7 +54,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.11
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.12
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「刷新驱动状态」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。独占注册表 `@deepseek-ai/dsh-computer-use` 是可选的，挂载方法见 0.1.10 一节。
@@ -188,18 +188,7 @@ v0.1.9 之后仍有两个真实缺陷：
 2. **驱动状态与按钮误导**。Host 半未激活时 `/status` 返回 404 文本，面板既显示原始 `Unexpected token 'o', "not found" is not valid JSON`，又把「安装驱动」显示为可点。现在：状态未知时明确显示「驱动状态未知（Host 半未激活）」，「安装驱动」只在状态证实**未安装**时可点；404 或非 JSON 响应统一转成可读原因。
 3. **前置提示按钮失效**。`remote.pluginManager` 是 Remote namespace，客户端连接后才作为独立 Cordis 插件挂载；`apply` 期间读取只会得到 `undefined`（这正是「安装前置组件」按钮从未出现的原因）。现在改为 `ctx.inject(['remote.pluginManager'])` 动态接管，面板据此显示注册表状态。
 
-注册表现在是**可选**的：面板只在能确认「未挂载」时给出说明，不再提供注定被拒绝的安装按钮。若需要严格互斥（例如同时使用官方 Cua provider），把它手动挂进 profile：
-
-```yaml
-# ~/.dsh/profiles/web/cordis.patch.yml
-- insert:
-    - id: computer-use
-      name: '@deepseek-ai/dsh-computer-use'
-```
-
-```sh
-dsh plugin --profile web add @deepseek-ai/dsh-computer-use@0.2.1-alpha.2
-```
+注册表现在是**可选**的：面板只在能确认「未挂载」时给出说明与两条可复制步骤（0.1.12 起版本按当前 DSH 解析，见下一节），不再提供注定被拒绝的安装按钮。若需要严格互斥（例如同时使用官方 Cua provider），按面板给出的命令执行；不想挂载就忽略。
 
 **升级步骤**：把插件地址改成 `#v0.1.10` → 浏览器硬刷新 → 重启 DSH → 打开「电脑操控」。此时应看到 `未安装 · 目标版本: 0.28.0`（若驱动已装则显示「受管驱动已安装（未启动验证）」），并可直接配置白名单。
 
@@ -216,6 +205,19 @@ dsh plugin --profile web add @deepseek-ai/dsh-computer-use@0.2.1-alpha.2
 样式随模块注入一次（`document` 不存在时静默跳过），类名统一 `cu-` 前缀，避免与 shell 或其它插件冲突。测试断言样式只使用 `--dsw-*` 令牌、只注入一次、面板结构为「分组卡片 + 行 + 开关」，并校验 `client.js` 的版本号与 `package.json` 一致。
 
 **升级步骤**：改地址为 `#v0.1.11` → 浏览器硬刷新 → 打开「电脑操控」即可看到新样式（客户端半热加载即可，无需重启 DSH）。
+
+### 0.1.11 → 0.1.12（挂载注册表的两步给出可复制文本，版本不写死）
+
+面板在确认注册表未挂载时，直接给出两条可复制的步骤（各有「复制」按钮）：
+
+1. 安装包的命令：`dsh plugin --profile <当前 profile> add @deepseek-ai/dsh-computer-use@<版本>`
+2. 需要粘进 `cordis.patch.yml` 的那条 insert
+
+**为什么不做成一键安装**：DSH 的 Host 插件管理器只激活带 bundle patch 的包，`installBundle` 会把无 patch 的安装回滚；而插件本身**不得**写 profile 的文件（`dependencies`/`bundles`/patch 层都由插件管理器或用户掌握）。所以正确的做法是给出准确命令，由用户执行。
+
+**版本不写死**：Host 半从运行中的 Harness 入口脚本向上找到 `@deepseek-ai/dsh` 的 manifest 读出真实版本（例如 `0.2.1-alpha.1`），再从 npm 取该包的已发布版本，选**同一 core 版本**里最新的一个（`0.2.1-alpha.2`）。npm 不可达时命令退化为不带版本号的 `@deepseek-ai/dsh-computer-use`，不会凭空编造版本。命令里的 profile 名与配置文件路径来自 `DSH_PROFILE`/`DSH_PROFILE_DIR`，因此不同 profile 直接可用。
+
+**升级步骤**：改地址为 `#v0.1.12` → 浏览器硬刷新。若确实需要严格互斥，按面板给出的两条命令执行；不需要就忽略这张卡片。
 
 ## 许可证
 

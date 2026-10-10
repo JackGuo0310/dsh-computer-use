@@ -81,7 +81,7 @@ async function main() {
     for (const fiber of ctx.loader.entries()) await fiber.fiber?.await()
     const inactive = [...ctx.loader.entries()].filter(entry => entry.fiber?.state === 5 || entry.fiber?.state === 6)
     assert.deepEqual(inactive.map(entry => entry.options.id), [], `entries failed to activate: ${inactive.map(entry => entry.options.id).join(', ')}`)
-    assert.deepEqual([...routes.keys()].sort(), ['/api/computer-use-safe-win/install', '/api/computer-use-safe-win/running-apps', '/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
+    assert.deepEqual([...routes.keys()].sort(), ['/api/computer-use-safe-win/install', '/api/computer-use-safe-win/registry-setup', '/api/computer-use-safe-win/running-apps', '/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
     assert.deepEqual(registrations, ['safe-win'], 'the provider takes the exclusive registration while observation is disabled, so enabling needs no restart')
     // No /requirements route: until the prerequisite is installed this Host half
     // cannot answer anything, so the browser half asks the plugin manager instead.
