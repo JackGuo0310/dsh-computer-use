@@ -124,17 +124,17 @@ SDK 提供 `SetAgentCursorEnabled` / `SetAgentCursorMotion` / `SetAgentCursorThe
 
 ## 宿主服务依赖（0.1.6 起）
 
-Host 半 `inject: ['connection', 'computerUse']`。
+Host 半 `inject: ['connection', 'computerUse']`。当前 web profile 的 manifest 含 `dsh-computer-use-safe-win`，但其依赖中不含 `@deepseek-ai/dsh-computer-use`；配置也未在 `cordis.patch.yml` 显式列出 provider。该状态可解释 `pending (waiting for service: computerUse)`，但未检查运行中 Loader composition，故不能断言它是唯一原因。
 
 - `connection` —— 认证 API 通道，路由挂载点。
 - `computerUse` —— `@deepseek-ai/dsh-computer-use` 提供的**独占提供者注册表**，保证同一时刻只有一个 computer-use provider 控制桌面。**按服务名取用，不 import 宿主包**，因此不引入副本。
-- `configForms` **必须**排除：它是 `@deepseek-ai/dsh-ui-settings` 的浏览器端服务，宿主进程里永远不存在；误加会让插件永久 `pending` 且设置面板空白。
+- `configForms` 是浏览器端 `ui-settings` 提供的服务，与 Host 的 `pending` 问题无关。`settings.section` 是根 Settings shell 渲染的子 slot，Shell 不会把注册插件的 Cordis `ctx` 或服务代理传给其 Component；若 Component 读取其未注入的 `configForms`，会触发 render error 并由 Renderer 的 entry error boundary 隔离该 section。客户端 `apply(ctx)` 可在声明 inject 中获取 form，然后通过闭包传给 Component。Host 仍必须排除 `configForms`。实际 GUI 空白是否由此触发，尚待认证后验证。
 
-宿主半在 `enabled: false` 时也会挂载 provider，使启用/停用/白名单改动对下一次调用立即生效；代价是必须存在 `computerUse` 服务。
+宿主半在 `enabled: false` 时也会挂载 provider，使启用/停用/白名单改动对下一次调用立即生效；代价是必须存在 `computerUse` 服务。profile 是否已装载该 provider 应通过当前 composition 状态确认。
 
 **前置依赖的查询与安装一律由浏览器半完成**（`remote.pluginManager.listBundles()` / `installBundle()`），**不得**放在本插件的 Host 路由里：在前置包装好之前宿主半根本不会激活，它自己的路由无法应答「装没装」，会形成死锁（v0.1.6 的缺陷，`/requirements` 路由因此被删除）。同理，插件**绝不**直接改 profile 文件——`dependencies` 与 `bundles` 由插件管理器写，只走受管安装接口。
 
-**浏览器半注册分区只用 `slots.register(options, component)` 重载**，附加数据经闭包传入（`const Section = props => h(DriverSettings, { ...props, pluginManager: manager })`）。第三参数仅接受 `{ inject }`；传普通对象会令注册抛错、分区完全不渲染（v0.1.6 / v0.1.7 的空白即由此而来）。测试桩强制该契约，使这类错误不再静默通过。
+**浏览器半注册分区只用 `slots.register(options, component)` 重载**；附加数据（例如当前客户端上下文取得的 `configForms`、可选的 `pluginManager`）经闭包传入。`settings.section` 注册项没有 `inject` face，Shell 不会把 Provider 的服务注入子组件；Renderer 的标准注入包含 locale 的 `t`，而其余来自注册项自己的 `inject` 或父 slot 明确声明的共享 inject face。该插件捕获 `configForms` 后通过闭包传给 `DriverSettings`，且在无该服务时以不可用状态降级。旧版测试桩只检查 `register()` 参数形状，并未复现真实 Renderer 的子 slot props 装配，因此不能据此归因 v0.1.6 / v0.1.7 空白。
 
 ## 宿主依赖边界（0.1.1 起强制）
 

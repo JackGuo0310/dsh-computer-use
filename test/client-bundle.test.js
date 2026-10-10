@@ -38,8 +38,8 @@ function configForm({ status = 'ready', enabled = false, allowedApps = [], writa
   return form
 }
 
-/** Evaluate the browser artifact against stub Cordis, React, configForms, and fetch seams. */
-async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, registry = registryReady } = {}) {
+/** Evaluate the genuine browser artifact with DSH-like Cordis, React, slot, and fetch seams. */
+async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, registry = registryReady, withConfigForms = true } = {}) {
   const registered = []
   const deferredSlot = new Map()
   const effects = []
@@ -52,6 +52,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   const seen = []
   const react = {
     createElement(type, props, ...children) {
+      if (props == null) props = {}
       if (type === 'form' && props.onSubmit) {
         const onSubmit = props.onSubmit
         props = { ...props, onSubmit: event => onSubmit({ ...event, currentTarget: event.currentTarget ?? renderCurrentTarget }) }
@@ -88,9 +89,9 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   }
   const slots = {
     inject(name, register) { deferredSlot.set(name, register) },
-    // `slots.register` accepts `(options, component)` or `(options, component, { inject })`.
-    // Anything else is a contract violation the real renderer rejects, and a bad
-    // third argument left the settings section silently blank in v0.1.6/v0.1.7.
+    // Accept the real public overloads, although this plugin uses only the
+    // two-argument `(options, component)` form. The slot harness does not emulate
+    // the DSH Renderer or React reconciliation.
     register(spec, Component, extra) {
       if (extra !== undefined && (typeof extra !== 'object' || extra === null || (extra.inject !== undefined && typeof extra.inject !== 'function'))) {
         throw new Error(`slot "${spec?.id}" was registered with an invalid third argument`)
@@ -132,7 +133,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     installBundle: async spec => { installs.push(spec); return { ok: true, value: { installed: spec } } },
   }
   namespace.apply({
-    slots, locale: localeService, configForms,
+    slots, locale: localeService, configForms: withConfigForms ? configForms : undefined,
     // `withManager: false` reproduces a Host that does not mount the
     // plugin-manager client half, so the panel must only explain.
     remote: withManager ? { pluginManager: pluginManagerStub } : undefined,
@@ -147,7 +148,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     effectCursor = 0
     effects.length = 0
     const t = key => dictionaries.get('computerUseSafeWin')?.[active]?.[key] ?? key
-    const element = renderNode(registered[0].Component({ close() {}, t, configForms }, registered[0].extra?.inject?.() ?? {}))
+    const element = renderNode(registered[0].Component({ close() {}, t }, registered[0].extra?.inject?.() ?? {}))
     renderCurrentTarget = { elements: { enabled: { checked: Boolean(findElement(element, node => node.type === 'input' && node.props.type === 'checkbox')?.props.checked) } } }
     for (const effect of effects) effect()
     return element
@@ -218,6 +219,15 @@ test('the shipped client half registers a Settings section and renders driver an
   assert.match(text, /允许的应用/)
   assert.match(text, /Cua Driver/)
   assert.match(text, /未安装 · 目标版本: 0\.28\.0/)
+  assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
+})
+
+test('the section remains renderable when configForms is unavailable', async () => {
+  const page = await evaluate({ withConfigForms: false })
+  const text = textOf(await page.render())
+  assert.equal(page.spec.id, 'computer-use-safe-win')
+  assert.match(text, /Cua Driver/)
+  assert.match(text, /Host 配置不可用/)
   assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status'])
 })
 

@@ -42,7 +42,9 @@
 
 ## 尚未验证
 
-浏览器半的**真实渲染**仍需在运行中的 DSH Web GUI 验证。`test/client-bundle.test.js` 在 `node:vm` 中加载真实产物，模拟 DSH Renderer 传入的 `t(key)`，覆盖文案、状态读取、安装确认、错误呈现与侧栏分区；React 调和、slot 渲染器交互和实际点击未在此验证。安装后请在设置侧栏「电脑操控」确认状态和两个按钮。
+已确认 Renderer 的 props 规则：`settings.section` 是 shell 渲染的子 slot，不会继承插件 `apply(ctx)` 的 Cordis `configForms` 服务代理；旧组件直接读取该代理会导致 render error，并由 Renderer 的 entry error boundary 隔离。客户端现由 `apply(ctx)` 捕获表单并经闭包传入，服务不可用时显示提示。空白页的实际运行时根因仍需在认证后的 DSH Web GUI 确认。Host `computerUse` 的 `pending` 是独立问题：当前 web profile 中插件 manifest 没有 `@deepseek-ai/dsh-computer-use` 依赖，patch 也未显式加入该 provider；这能解释 `computerUse` 服务缺失，但未检查运行中 Loader composition，不能断言这是唯一原因。未更改生命周期或注入设计。
+
+`test/client-bundle.test.js` 仍加载真实插件 `client.js`，但使用轻量 React/slot harness，不等同于真实 DSH Renderer 或 React 调和；已加缺少 `configForms` 的降级回归。当前 GUI 的 HTTP 根路径要求认证，仅访问 loopback 未能取得页面诊断，因此仍需在已认证的 DSH Web GUI 实际确认可见渲染与交互。
 
 实施按小阶段做本地 Git commit，不 push。保留既有用户改动，不通过重置工作树掩盖迁移。
 
@@ -134,12 +136,14 @@ DSH Renderer 给 `settings.section` 的 `t` 是翻译函数 `t(key)`，不是字
 - 自动化输入会在屏幕上显示一个蓝色 agent cursor（驱动的 UIA 通路副产品），这是可见且被接受的副作用。
 - 动作工具仍未注册：需要一次性审批与审批后重验链路，且取消/失败路径尚未实测。
 
-### 0.1.4 → 0.1.5（v0.1.4 装不起来的热修复）
+### 0.1.4 → 0.1.5（修正宿主服务声明）
 
-v0.1.4 发布后在真实 DSH 里启动即挂起、设置面板空白。根因有两个，都是发布前检查没覆盖到：
+v0.1.4 曾被报告启动挂起、设置面板空白。发布代码包含错误的宿主依赖声明；它能解释 Host half 对 `configForms` 的等待，但不单独证明当时设置页空白原因：
 
-1. **`configForms` 被错误地声明为宿主依赖**。它是 `@deepseek-ai/dsh-ui-settings` 提供的**浏览器端**服务，宿主进程里永远不存在，插件因此一直 `pending (waiting for service: configForms)`，路由不注册、工具不挂载。
-2. **`computerUse` 缺失**。v0.1.3 在 `enabled: false` 时会提前返回，因此从没读过这个服务；改成「禁用时也挂载 provider」以支持配置实时生效后，它必须出现在注入列表里。
+1. **`configForms` 不应由 Host half inject**。它是 `@deepseek-ai/dsh-ui-settings` 提供的浏览器端服务，Host composition 中不可用；Host 保留它会令插件等待永远无法满足的服务。
+2. **`computerUse` 缺失**。v0.1.3 在 `enabled: false` 时提前返回，因此未访问此服务；改为禁用时也挂载 provider 后，注册表成为必需依赖。
+
+该版本之后 `computerUse` 仍未随插件一同安装，因而 pending 状态曾继续出现；相关运行时 profile 状态需另行诊断。
 
 同时修复两个只有安装后才会暴露的问题：
 
@@ -150,9 +154,7 @@ v0.1.4 发布后在真实 DSH 里启动即挂起、设置面板空白。根因�
 
 ### 0.1.5 → 0.1.6（前置依赖可一键安装）
 
-v0.1.5 修好了启动挂起，但暴露出真正的根因：**本插件需要 `@deepseek-ai/dsh-computer-use`**，它提供「同一时刻只允许一个电脑操控提供者」的独占注册表。没有它，插件会一直停在 `pending (waiting for service: computerUse)`。
-
-这个包自 v0.1.3 起就在被调用，只是从没在你的 profile 里装过——所以宿主半**从 v0.1.3 到现在都没有真正激活过**。
+v0.1.5 修正 `configForms` 的 Host 注入声明后，Host half 仍需要 `@deepseek-ai/dsh-computer-use` 提供的独占注册表。若 profile 没有安装/加载该 provider，插件会停在 `pending (waiting for service: computerUse)`。安装按钮最初计划通过 Host 路由提供，但 Host half 尚未激活前无法应答，因此需改由浏览器半调用 DSH 插件管理器。
 
 本版不要求你手动去装：
 
@@ -180,18 +182,19 @@ Host 侧仍为 `inject: ['connection', 'computerUse']`——这是 DSH 官方 Cu
 
 **升级后仍需两次重启**：一次让本插件宿主半生效，一次让新装的前置包生效。
 
-### 0.1.7 → 0.1.8（设置分区一直空白的真正原因）
+### 0.1.7 → 0.1.8（修正设置分区数据传递）
 
-v0.1.6 / v0.1.7 的分区一直空白，**和前置组件无关**。真正原因：宿主 `slots.register` 只有两个重载——`(options, component)` 与 `(options, component, { inject })`。插件传了第三个普通对象 `{ prerequisites }`，契约不符，注册时抛错，整个分区根本没有渲染。
+旧版 `settings.section` Component 直接读取 `configForms`，但该子 slot 不会收到注册插件 `apply(ctx)` 的 Cordis 服务代理。真实 Renderer 的源码表明，这类 render error 会被 entry error boundary 隔离；目前尚未在认证后的 GUI 复现或确认旧版实际错误。此前测试也只检查了 `register()` 参数形式，不能证明真实 slot 渲染。
 
-本版改用最基础的注册重载，通过闭包把插件管理器传给组件：
+本版在 `apply(ctx)` 捕获配置表单与可选插件管理器，再通过闭包传入 Component：
 
 ```js
-const Section = props => h(DriverSettings, { ...props, pluginManager: manager })
+const configForms = ctx.configForms
+const Section = props => h(DriverSettings, { ...props, configForms, pluginManager: manager })
 ctx.slots.inject('settings.section', () => ctx.slots.register({ … }, Section))
 ```
 
-同时给测试桩加了注册契约校验：第三个参数只接受 `{ inject: function }`，否则直接抛错——这类错误不会再悄悄通过测试。
+回归测试加载真实 `client.js`，并验证缺少 `configForms` 时分区内容仍可渲染；该测试使用轻量 React/slot harness，不覆盖真实 Renderer 和 React 调和。
 
 **升级步骤**：改地址为 `#v0.1.8` → 浏览器硬刷新（Ctrl+Shift+R）→ 重启 DSH → 打开「电脑操控」，应能看到「缺少前置组件」和安装按钮 → 安装 → 再重启一次。
 

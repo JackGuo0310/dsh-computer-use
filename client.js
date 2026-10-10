@@ -70,12 +70,12 @@ window.__ModuleLoader__.load({
       const [draftRows, setDraftRows] = React.useState(null)
       const [draftEnabled, setDraftEnabled] = React.useState(null)
       const formRef = React.useRef(null)
-      formRef.current ??= configForms.get(CONFIG_ID)
+      formRef.current ??= configForms?.get(CONFIG_ID)
       const form = formRef.current
       const config = React.useSyncExternalStore(
-        listener => form.subscribe(listener),
-        () => form.getSnapshot(),
-        () => form.getSnapshot(),
+        listener => form?.subscribe(listener) ?? (() => {}),
+        () => form?.getSnapshot() ?? { status: 'unavailable', value: undefined, writable: false, mode: 'host' },
+        () => form?.getSnapshot() ?? { status: 'unavailable', value: undefined, writable: false, mode: 'host' },
       )
       async function request(path, options) {
         const response = await fetch(path, { credentials: 'same-origin', ...options })
@@ -271,16 +271,17 @@ window.__ModuleLoader__.load({
         // plugin's Host half is still waiting for the prerequisite to appear.
         // Nothing here edits the profile: the plugin manager owns those files.
         const manager = ctx.remote?.pluginManager
-        // DSH Settings forms are keyed by the Host profile entry id; this section
-        // is that one registered entry's own configuration surface.
-        ctx.configForms.get(CONFIG_ID)
+        // Settings sections are rendered by the shell as slot children and do not
+        // receive the parent plugin's Cordis injection context. Capture the form
+        // controller in the closure while this module has its declared service.
+        const configForms = ctx.configForms
         // A Settings nav entry, like every other settings feature: the driver
         // panel is a page of its own rather than a block inside the Plugins page.
         ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh: TEXT.zh, en: TEXT.en }), 'dsh-computer-use-safe-win: locale')
         // The plugin manager is closed over instead of injected: it is optional
         // (absent on a Host without that client half) and a plain closure keeps
         // the component's props to what the slot contract always provides.
-        const Section = props => h(DriverSettings, { ...props, pluginManager: manager })
+        const Section = props => h(DriverSettings, { ...props, configForms, pluginManager: manager })
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
           id: 'computer-use-safe-win',
