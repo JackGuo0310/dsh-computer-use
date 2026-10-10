@@ -7,6 +7,7 @@
 - 锁定 `@trycua/cua-driver@0.28.0`；运行时代码选用 SDK-managed private worker。阶段 A 静态证据见 [STAGE-A.md](<STAGE-A.md>)。
 - 插件只开放 `safe_win_list_windows` 和 `safe_win_observe`。动作工具未注册；不发送输入。
 - 窗口按配置的 executable 文件名白名单过滤；观察绑定到 fresh listing 的 PID 与 bigint window ID，且过滤结果不向模型泄露 element token。
+- 快照的完整性判定与边界投影集中在 `src/snapshot-policy.js`（不 import Cua SDK），因此该部分可在不加载原生插件的进程内测试：拒绝非目标窗口、degraded、静默不完整元素集与失效截图帧，并对 element 数、文本长度与图像字节设上限。显式 `truncated` 仍作为可见信息返回，不冒充完整快照。
 - `safe_win_observe` 的截图选项当前拒绝 `true`，直到 DSH 图像附件/渲染链路得到验证；tree-only 观察使用 `false`。
 - Cua SDK/worker 未安装或运行，未真实枚举桌面、截图或发送输入。Worker 可用性、真实应用可访问性、截图输出及附件链路均未实测。
 - SDK 的 Node native addon 仍在 DSH host 进程加载。private worker 隔离桌面 driver runtime 进程生命周期，不是 OS 沙箱，也不隔离 host native addon 自身崩溃。
@@ -98,6 +99,7 @@ Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必
 - A（版本/API/拓扑静态证据）：完成，见 STAGE-A.md；未运行 Cua。
 - B（观察路径、身份校验、Loader 与生命周期）：已实现并有桌面无关测试；完整打包验证已通过。
 - B.1（设置写入校验与多应用 GUI 往返）：schema 限定 exe 文件名和 64 项上限，Host `validateConfig` 与 apply 均检查危险项、重复项和启用/白名单约束；GUI 按真实换行显示多应用白名单。只完成桌面无关验证，不代表 Remote 权限策略或真实 UI 验收。
+- B.2（快照完整性与投影边界）：把快照判定与边界投影抽到不依赖 Cua SDK 的 `src/snapshot-policy.js` 并加桌面无关测试，拒绝非目标窗口、degraded、静默不完整元素集、失效截图帧与越界 image。仍未验证真实 driver 行为与图像交付。
 - C（输入动作、审批后重验、结果验证、截图附件）：未完成；动作关闭，图像管线未验证。
 - D（移除旧 helper 链路、测试/配置/文档/打包）：旧产品代码与测试已移除；打包校验覆盖 client/locale/icon 资源。
 - E（最终审阅与本地提交）：前序实现已有本地提交与 tag `mvp-0.1.0`；后续 GUI/配置修订按检查结果单独本地提交，不 push。

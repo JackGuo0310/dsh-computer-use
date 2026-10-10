@@ -10,6 +10,7 @@
 - 新会话可直接使用的实施提示词：[HANDOFF.md](<HANDOFF.md>)。
 - 阶段 A 的版本/API 静态证据见 [STAGE-A.md](<STAGE-A.md>)。Cua SDK 已作为开发依赖安装以供静态测试；Driver 可执行文件未安装、worker 未运行，真实桌面、截图和输入均未触及。
 - 当前安全边界是**观察-only**：只注册 `safe_win_list_windows` 与 `safe_win_observe`，且不向模型暴露 Cua element token。动作、审批后执行与结果验证尚未接入；不把上游能力写成本插件已通过的能力。
+  - 快照的完整性判定与边界投影在 `src/snapshot-policy.js`，不 import Cua SDK，因此可桌面无关地测试：拒绝非目标窗口、degraded、静默不完整元素集和失效截图帧，并限制 element 数、文本长度与图像字节。显式 `truncated` 仍作为可见信息返回。
 - DSH 输出目前走 JSON/text 适配，不代表图像附件已被模型渲染或测试。截图选项目前拒绝 true；请勿依赖截图输出。
 - SDK 的 npm 包不含 `cua-driver.exe`；私有 worker 需要另行安装固定版本的 Windows release。插件安装后在 **设置侧栏** 出现一个「电脑操控 / Computer Use」分区（同一个包名同时挂载 Host 与浏览器两半），Host 常驻在认证 API 通道上注册 `/api/computer-use-safe-win/status` 与 `/api/computer-use-safe-win/install` 两条路由，该分区提供「测试驱动」与「安装驱动」两个按钮。
   - 「测试驱动」只读受管目录，返回目标版本、已安装版本与平台支持情况；版本来自固定 checksum 的官方发行包，**未启动驱动验证**，因此界面显示「受管驱动已安装（未启动验证）」。

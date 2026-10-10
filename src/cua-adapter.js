@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { getDriverPaths, getDriverStatus } from './driver-install.js'
+import { MAX_ELEMENTS, projectSnapshot } from './snapshot-policy.js'
 import {
   CuaDriver,
   EmbeddedEnvironmentVariable,
@@ -9,9 +10,6 @@ import {
 } from '@trycua/cua-driver'
 
 const HOST_BUNDLE_ID = 'ai.deepseek.dsh.computer-use'
-const MAX_ELEMENTS = 200
-const MAX_TEXT = 4096
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const ACTION_TIMEOUT_MS = 15_000
 const STARTUP_TIMEOUT_MS = 15_000
 const SHUTDOWN_TIMEOUT_MS = 5_000
@@ -160,39 +158,7 @@ export class CuaRuntime {
         maxDepth: 12,
         maxDimension: 4096,
       })
-      if (state.pid !== target.pid || state.windowId !== target.windowId || state.degraded) throw new Error('Cua returned an incomplete or degraded window snapshot')
-      const elements = Array.isArray(state.elements) ? state.elements : []
-      if (elements.length > MAX_ELEMENTS) throw new Error('Cua snapshot exceeds the element limit')
-      const safeElements = elements.map(element => {
-        const index = Number(element.elementIndex)
-        if (!Number.isSafeInteger(index) || index < 0) throw new Error('Cua returned an invalid element index')
-        return Object.freeze({
-          index,
-          role: boundedText(element.role, 80),
-          label: boundedText(element.label ?? '', 256),
-          value: boundedText(element.value ?? '', 256),
-          enabled: element.enabled !== false,
-          selected: element.selected === true,
-          token: typeof element.elementToken === 'string' ? element.elementToken : undefined,
-          actions: Array.isArray(element.actions) ? element.actions.filter(a => typeof a === 'string' && ['click', 'press', 'select', 'toggle'].includes(a.toLowerCase())) : [],
-          frame: element.frame ? { ...element.frame } : undefined,
-        })
-      })
-      const images = (state.images ?? []).map(image => {
-        const data = Buffer.from(image.dataBase64, 'base64')
-        if (data.length > MAX_IMAGE_BYTES) throw new Error('Cua screenshot exceeds the image limit')
-        return Object.freeze({ mimeType: image.mimeType, data })
-      })
-      if (includeScreenshot && (!images.length || images.some(image => !/^image\/(png|jpeg|webp)$/.test(image.mimeType)))) throw new Error('Cua did not return a supported target-window screenshot')
-      return Object.freeze({
-        target: current,
-        snapshotId: state.snapshotId,
-        treeMarkdown: boundedText(state.treeMarkdown ?? '', MAX_TEXT),
-        elements: safeElements,
-        truncated: state.truncated === true,
-        degraded: state.degraded === true,
-        images,
-      })
+      return Object.freeze({ target: current, ...projectSnapshot(state, target, { includeScreenshot }) })
     }, signal)
   }
 
@@ -224,8 +190,4 @@ export class CuaRuntime {
     this.#tail = final.catch(() => {})
     return final
   }
-}
-
-function boundedText(value, limit) {
-  return typeof value === 'string' ? value.slice(0, limit) : ''
 }
