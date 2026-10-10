@@ -1,17 +1,9 @@
 import { resolve } from 'node:path'
 import { getDriverPaths, getDriverStatus } from './driver-install.js'
-import { ACTION_TIMEOUT_MS, OperationQueue, SHUTDOWN_TIMEOUT_MS, withTimeout } from './operation-queue.js'
+import { buildPrivateWorkerOptions, STARTUP_TIMEOUT_MS } from './driver-options.js'
+import { ACTION_TIMEOUT_MS, OperationQueue, withTimeout } from './operation-queue.js'
 import { MAX_ELEMENTS, projectSnapshot } from './snapshot-policy.js'
-import {
-  CuaDriver,
-  EmbeddedEnvironmentVariable,
-  PrivateWorkerOptions,
-  RuntimeAuthorizationOptions,
-  SessionPermissionMode,
-} from '@trycua/cua-driver'
-
-const HOST_BUNDLE_ID = 'ai.deepseek.dsh.computer-use'
-const STARTUP_TIMEOUT_MS = 15_000
+import { CuaDriver } from '@trycua/cua-driver'
 
 function assertDriver(driver) {
   for (const method of ['listApps', 'listWindows', 'getWindowState', 'verifyState', 'shutdown']) {
@@ -28,27 +20,7 @@ export async function startCuaRuntime({ driverFactory = CuaDriver.createPrivateW
   const executable = resolve(binaryPath ?? getDriverPaths().executable)
   signal?.throwIfAborted()
 
-  const authorization = RuntimeAuthorizationOptions.create({
-    allowedModes: [SessionPermissionMode.Standard],
-    compatibilityMode: SessionPermissionMode.Standard,
-    unrestrictedAcknowledged: false,
-    maxSessionTtlSeconds: 900n,
-    maxIdleTtlSeconds: 300n,
-  })
-  const configuredDriver = {
-    claudeCodeCompatibility: false,
-    authorization,
-  }
-  const environment = [EmbeddedEnvironmentVariable.create({ key: 'RUST_LOG', value: 'warn' })]
-  const options = PrivateWorkerOptions.create({
-    binaryPath: executable,
-    hostBundleId: HOST_BUNDLE_ID,
-    startupTimeoutMs: BigInt(STARTUP_TIMEOUT_MS),
-    shutdownTimeoutMs: BigInt(SHUTDOWN_TIMEOUT_MS),
-    configuredDriver,
-    environment,
-    inheritStderr: false,
-  })
+  const options = buildPrivateWorkerOptions(executable)
   const driver = await withTimeout(
     Promise.resolve().then(() => driverFactory(options)),
     STARTUP_TIMEOUT_MS,
