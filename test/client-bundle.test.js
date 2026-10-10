@@ -19,6 +19,7 @@ const registrySetup = {
   dshVersion: '0.2.1-alpha.1',
   version: '0.2.1-alpha.1',
   exact: true,
+  verified: true,
   spec: `${REQUIRED_PACKAGE}@0.2.1-alpha.1`,
   command: `dsh plugin --profile web add ${REQUIRED_PACKAGE}@0.2.1-alpha.1`,
   patch: `- insert:\n    - id: computer-use\n      name: '${REQUIRED_PACKAGE}'`,
@@ -460,6 +461,16 @@ test('a fallback build of the same line is shown with its brand warning', async 
   const text = textOf(await page.render())
   assert.match(text, /@deepseek-ai\/dsh-computer-use@0\.2\.1-alpha\.2/)
   assert.match(text, /未发布与当前 DSH 完全同版本的构建/)
+})
+
+test('an unconfirmed pin still shows the running version instead of dropping it', async () => {
+  const page = await evaluate({
+    registry: registryMissing,
+    setup: { ...registrySetup, verified: false },
+  })
+  const text = textOf(await page.render())
+  assert.match(text, /@deepseek-ai\/dsh-computer-use@0\.2\.1-alpha\.1/, 'the pin survives an unreachable npm')
+  assert.match(text, /未查询到 npm 版本列表/)
 })
 
 test('an unanswered setup route reports the reason and still offers a runnable command', async () => {

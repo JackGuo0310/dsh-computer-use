@@ -54,7 +54,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.14
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.15
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「刷新驱动状态」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。独占注册表 `@deepseek-ai/dsh-computer-use` 是可选的，挂载方法见 0.1.10 一节。
@@ -237,6 +237,18 @@ v0.1.9 之后仍有两个真实缺陷：
 所以现在**优先选与运行 DSH 完全相同的版本**；只有当该版本没有发布时，才退回到同版本线里最新的构建，并且面板会明确提示「未发布与当前 DSH 完全同版本的构建，这里取同版本线最新；它可能要求不同的 dsh-brand」。
 
 **升级步骤**：改地址为 `#v0.1.14` → 浏览器硬刷新。卡片里的命令应变成 `…@0.2.1-alpha.1`（与你的 DSH 一致）。
+
+### 0.1.14 → 0.1.15（精确版本不再依赖 npm 查询）
+
+0.1.14 仍把「是否带版本号」系在 npm 查询上，而**本机 Host 的直连 npm 查询并不可靠**（实测 `fetch('https://registry.npmjs.org/...')` 报 `Client network socket disconnected before secure TLS connection was established`，只有走代理的 `npm view` 能通）。查询一失败，面板就会退化成不带版本号的命令。
+
+本版把关系倒过来：**运行中的 DSH 版本就是答案**（因为它与该包按 lockstep 发布），npm 只用来「核对这个构建是否已发布」：
+
+- npm 可查且该版本存在 → 给出 `@<DSH 版本>`，`verified: true`
+- npm 可查但没有该精确版本 → 退回同版本线最新并提示可能要求不同 brand
+- npm 查不到 → **仍然给出 `@<DSH 版本>`**，另加一行「未查询到 npm 版本列表，直接采用当前 DSH 版本」；不会因此丢掉版本号
+
+**升级步骤**：改地址为 `#v0.1.15` → 浏览器硬刷新。命令里应稳定显示 `@0.2.1-alpha.1`。
 
 ## 许可证
 

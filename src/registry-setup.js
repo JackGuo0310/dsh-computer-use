@@ -94,18 +94,28 @@ export function matchingVersion(dshVersion, published) {
 /**
  * The two commands that mount the registry in this profile.
  *
+ * The running Harness version *is* the answer, because the registry is released
+ * in lockstep with it: npm is asked only to confirm that the build is published
+ * (and to supply the newest sibling when it is not). An unreachable registry
+ * therefore must not downgrade the command to an unpinned spec — it only sets
+ * `verified: false` so the panel can say the pin was not confirmed.
+ *
  * @param options - Harness version, profile name, and the published versions.
- * @returns The resolved spec, whether it is the exact Harness version, and the copy-ready texts.
+ * @returns The resolved spec, whether it is the exact Harness version, whether npm confirmed it, and the copy-ready texts.
  */
 export function registryPlan({ dshVersion, profile, published }) {
-  const version = matchingVersion(dshVersion, published)
+  const running = parseVersion(dshVersion ?? '')
+  const wanted = running === undefined ? undefined : running.prerelease.length === 0 ? running.core : `${running.core}-${running.prerelease.join('.')}`
+  const verified = published.length > 0
+  const version = wanted !== undefined && (!verified || published.includes(wanted)) ? wanted : matchingVersion(dshVersion, published)
   const spec = version === undefined ? REGISTRY_PACKAGE : `${REGISTRY_PACKAGE}@${version}`
   return {
     package: REGISTRY_PACKAGE,
     profile,
     dshVersion: dshVersion ?? null,
     version: version ?? null,
-    exact: version !== undefined && version === dshVersion,
+    exact: version !== undefined && version === wanted,
+    verified,
     spec,
     command: `dsh plugin --profile ${profile} add ${spec}`,
     patch: `- insert:\n    - id: computer-use\n      name: '${REGISTRY_PACKAGE}'`,

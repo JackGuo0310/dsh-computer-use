@@ -47,12 +47,23 @@ test('the plan carries the copy-ready command and patch row for this profile', (
   assert.equal(plan.patch, `- insert:\n    - id: computer-use\n      name: '${REGISTRY_PACKAGE}'`)
   assert.equal(plan.version, '0.2.1-alpha.1')
   assert.equal(plan.exact, true)
+  assert.equal(plan.verified, true)
 })
 
 test('a plan without an exact published build is reported as inexact', () => {
   const plan = registryPlan({ dshVersion: '0.2.1-alpha.3', profile: 'web', published })
   assert.equal(plan.version, '0.2.1-alpha.2')
   assert.equal(plan.exact, false, 'the panel must be able to warn about a brand mismatch')
+})
+
+test('an unreachable registry still pins the running Harness version', () => {
+  // npm is only a confirmation: the lockstep release rule makes the running
+  // version the answer, so a failed lookup must not drop the pin.
+  const plan = registryPlan({ dshVersion: '0.2.1-alpha.1', profile: 'web', published: [] })
+  assert.equal(plan.version, '0.2.1-alpha.1')
+  assert.equal(plan.spec, `${REGISTRY_PACKAGE}@0.2.1-alpha.1`)
+  assert.equal(plan.verified, false, 'the panel reports the unconfirmed pin')
+  assert.equal(plan.exact, true)
 })
 
 test('an unresolvable version still yields a runnable command', () => {
