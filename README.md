@@ -54,7 +54,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.10
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.11
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「刷新驱动状态」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。独占注册表 `@deepseek-ai/dsh-computer-use` 是可选的，挂载方法见 0.1.10 一节。
@@ -202,6 +202,20 @@ dsh plugin --profile web add @deepseek-ai/dsh-computer-use@0.2.1-alpha.2
 ```
 
 **升级步骤**：把插件地址改成 `#v0.1.10` → 浏览器硬刷新 → 重启 DSH → 打开「电脑操控」。此时应看到 `未安装 · 目标版本: 0.28.0`（若驱动已装则显示「受管驱动已安装（未启动验证）」），并可直接配置白名单。
+
+### 0.1.10 → 0.1.11（设置分区改用 DSH 原生卡片风格）
+
+面板原先用内联样式拼装（h4 + 原生 checkbox + 裸按钮），和 DSH 其它设置页不一致。本版改成与 `dsh-better-sidebar`「侧边卡片」相同的设置配方，全部沿用 shell 的设计令牌：
+
+- 一行分区说明 + 包名/版本徽标（`dsh-computer-use-safe-win` `v0.1.11`）
+- 分组卡片：`--dsw-alias-border-l2` 细线 + 16px 圆角 + `--dsw-alias-bg-layer-3` 填充，组标题 13/600
+- 行配方：左侧「标题 14px + 灰色描述 12px」，右侧控件，行间细线分隔（末行去掉）
+- 开关：真实 checkbox 驱动 36×20 track + 14px thumb（保留原生语义与键盘焦点）
+- 按钮：8px 圆角、细线边框；主操作（安装驱动、保存配置）用 primary 填充
+
+样式随模块注入一次（`document` 不存在时静默跳过），类名统一 `cu-` 前缀，避免与 shell 或其它插件冲突。测试断言样式只使用 `--dsw-*` 令牌、只注入一次、面板结构为「分组卡片 + 行 + 开关」，并校验 `client.js` 的版本号与 `package.json` 一致。
+
+**升级步骤**：改地址为 `#v0.1.11` → 浏览器硬刷新 → 打开「电脑操控」即可看到新样式（客户端半热加载即可，无需重启 DSH）。
 
 ## 许可证
 

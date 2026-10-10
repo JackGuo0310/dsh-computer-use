@@ -200,6 +200,7 @@ Host 半常驻在认证 API 通道（`ctx.connection.fetch.register`，路径必
 - B.7（文字输入的能力边界与标题身份修复）：实测 `typeText` / `pressKey` 在后台窗口下自述成功但字符数不变，前台则字符数客观递增（0→27→39→49）。同时修复「窗口标题被当作身份」导致首次输入后自我锁死的缺陷。动作工具仍未注册。
 - B.8（截图经附件服务交付）：新增 `src/screenshot-delivery.js` 与 `defineTool` 的 `projectContent` 钩子，截图以 `ImageAttachmentRef` 进结果、图像块由投影并入内容，附件存储按服务名取得、不 import 宿主包，缺服务时 fail closed。真实宿主中的模型可见性仍未验证。
 - B.9（可选独占注册表与面板状态诚实化）：`computerUse` 由必需依赖改为可选（缺失时照常挂载工具，出现时经 `ctx.inject` 取得独占槽位）；面板不再显示注定被 `installBundle` 拒绝的前置安装按钮，改为在能确认未挂载时给出说明；`remote.pluginManager` 改为动态接管（原实现在连接前读取，永远是 `undefined`）；驱动状态未知时明确显示并禁用安装按钮；404/非 JSON 响应转成可读原因。均为桌面无关测试；认证后 GUI 仍待人工确认。
+- B.10（设置分区改用 DSH 原生设置配方）：面板从内联样式改为与 `dsh-better-sidebar` 一致的设置外观——分区说明 + 包名/版本徽标、分组卡片（`--dsw-alias-border-l2` 细线 / 16px 圆角 / `--dsw-alias-bg-layer-3` 填充）、「标题 + 灰色描述 + 右侧控件」行配方与细线分隔、36×20 开关（真实 checkbox 驱动 track/thumb，保留原生语义与焦点）、细线边框按钮与 primary 主操作。样式随模块注入一次（无 `document` 时静默跳过），类名统一 `cu-` 前缀；测试断言只用 `--dsw-*` 令牌、只注入一次、结构为「分组卡片 + 行 + 开关」，并校验客户端版本号与 `package.json` 一致。桌面无关验证；**未在认证后的真实 GUI 中目视确认**。
 - C（输入动作、审批后重验、结果验证、截图附件）：未完成；动作关闭，图像管线未验证。
 - D（移除旧 helper 链路、测试/配置/文档/打包）：旧产品代码与测试已移除；打包校验覆盖 client/locale/icon 资源。
 - E（最终审阅与本地提交）：前序实现已有本地提交与 tag `mvp-0.1.0`；后续 GUI/配置修订按检查结果单独本地提交，不 push。

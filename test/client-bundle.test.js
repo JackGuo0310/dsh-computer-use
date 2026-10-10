@@ -17,6 +17,18 @@ function bundleList(names) {
   return { ok: true, value: names.map(name => ({ name })) }
 }
 
+/** A minimal document that records the stylesheets the client half installs. */
+function fakeDocument() {
+  const byId = new Map()
+  const styles = []
+  return {
+    styles,
+    getElementById(id) { return byId.get(id) ?? null },
+    createElement(tag) { return { tag, id: '', textContent: '' } },
+    head: { appendChild(node) { styles.push(node); byId.set(node.id, node) } },
+  }
+}
+
 function configForm({ status = 'ready', enabled = false, allowedApps = [], writable = true, mode = 'host', revision = 1, accept = true } = {}) {
   let current = { status, value: status === 'ready' ? { enabled, allowedApps } : undefined, base: {}, user: {}, revision, writable, mode }
   const listeners = new Set()
@@ -39,7 +51,7 @@ function configForm({ status = 'ready', enabled = false, allowedApps = [], writa
 }
 
 /** Evaluate the genuine browser artifact with DSH-like Cordis, React, slot, and fetch seams. */
-async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, deferManager = false, registry = registryReady, withConfigForms = true } = {}) {
+async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, deferManager = false, registry = registryReady, withConfigForms = true, document: hostDocument = undefined } = {}) {
   const registered = []
   const deferredSlot = new Map()
   const effects = []
@@ -128,6 +140,9 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     },
     window: { confirm: () => true, __ModuleLoader__: { load(value) { registration = value } } },
   }
+  // No document by default: the panel must survive a host that never provides
+  // one, and the style install is asserted through `fakeDocument()`.
+  if (hostDocument !== undefined) sandbox.document = hostDocument
   sandbox.globalThis = sandbox
   vm.createContext(sandbox)
   vm.runInContext(bundle, sandbox)
@@ -328,6 +343,41 @@ test('the panel is not registered as a Plugins page block any more', async () =>
   const page = await evaluate()
   assert.notEqual(page.spec.name, 'plugins.bundle.config')
   assert.equal(page.spec.key, undefined)
+})
+
+test('the panel renders the DSH settings recipes: group cards, rows and a switch', async () => {
+  const page = await evaluate()
+  const element = await page.render()
+  const headings = findElements(element, node => node.props?.className === 'cu-groupHeading')
+  assert.deepEqual(headings.map(heading => heading.children[0]), ['Cua Driver', '观察配置'])
+  assert.ok(findElement(element, node => node.props?.className === 'cu-row'), 'rows carry the title/description recipe')
+  const status = findElement(element, node => node.props?.role === 'status' && node.props['aria-live'] === 'polite')
+  assert.ok(status, 'the driver line is a polite status region')
+  const toggle = findElement(element, node => node.type === 'input' && node.props.type === 'checkbox')
+  assert.equal(toggle.props.className, 'cu-switchInput', 'the enable control is the switch recipe, not a bare checkbox')
+  assert.equal(toggle.props.name, 'enabled')
+  assert.ok(findElement(element, node => node.props?.className === 'cu-switchTrack'), 'the switch paints a track')
+  assert.deepEqual(findElements(element, node => node.type === 'button').map(node => node.children[0]),
+    ['刷新驱动状态', '安装驱动', '添加应用', '从运行中的应用选择', '保存配置'])
+})
+
+test('the section stylesheet is installed once and paints only shell tokens', async () => {
+  const document = fakeDocument()
+  await evaluate({ document })
+  await evaluate({ document })
+  assert.equal(document.styles.length, 1, 'a second evaluation must reuse the installed stylesheet')
+  assert.match(document.styles[0].id, /computer-use-safe-win/)
+  assert.match(document.styles[0].textContent, /\.cu-switchTrack/)
+  const tokens = [...bundle.matchAll(/var\((--[a-z0-9-]+)/g)].map(match => match[1])
+  assert.ok(tokens.length > 10, 'the restyle must paint from the shell tokens')
+  for (const token of tokens) assert.match(token, /^--ds(w)?-/, `unexpected design token ${token}`)
+})
+
+test('the panel version stays in lockstep with package.json', async () => {
+  const manifest = JSON.parse(await readFile(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'))
+  const declared = /const PLUGIN_VERSION = '([^']+)'/.exec(bundle)
+  assert.ok(declared, 'the client half declares the version it shows')
+  assert.equal(declared[1], manifest.version)
 })
 
 test('the install button posts explicit same-origin confirmation and re-tests', async () => {
