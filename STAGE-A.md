@@ -16,8 +16,16 @@
 - 精确 API 包含 `listApps`、`listWindows`、`getWindowState`、typed `click` 与 `shutdown`。窗口 ID 为 bigint；快照含 pid/windowId/elements/degraded 与截图字段。点击目标/位置/送达模式是显式类型，后台枚举为 `InputDeliveryMode.Background`。
 - 实现只提供本插件 curated 工具；不向模型注册上游完整目录，不使用 arbitrary `callTool`。不启用失败自动回退；后台拒绝必须明确失败。
 
+## 请求/选项记录的静态核对（2026-10-10 补充）
+
+- `RuntimeAuthorizationOptions.create` / `PrivateWorkerOptions.create` 与各 `*Input` 工厂的实现都是 `(partial) => Object.freeze({ ...defaults(), ...partial })`，**不做任何校验**：类型错误（例如把 bigint 超时写成 number）与越界权限模式会被原样接受，拼错的键会作为多余字段保留、让对应选项静默回到默认值。因此授权上限不能靠这一层保证，本插件用 `test/driver-options.test.js` 对着真实 SDK 断言整份 `PrivateWorkerOptions`。该测试只 import SDK 载入库，不启动 worker、不调用任何 driver 方法。
+- 请求字段名已按 `.d.ts` 逐个核对：`GetWindowStateInput` 为 `pid`/`windowId`/`includeAccessibilityTree`/`includeScreenshot`/`maxElements`/`maxDepth`/`maxDimension`；`ListWindowsInput` 为 `pid`/`onScreenOnly`；`ListAppsInput` 为空记录。
+- **`pid` 类型在方法间不一致**：`ListWindowsInput.pid`、`GetWindowStateInput.pid` 是 `number`，而 `VerifyStateInput.pid` 是 `bigint`。`listWindows` 与 `getWindowState` 传原始 number，`verifyState` 必须 `BigInt(pid)`；本地保留窗口身份为 bigint，只在 DSH JSON 输出时转十进制字符串。
+- `WindowStateOutput.images` 是 `SnapshotImage[]`，注释明确图像属于 MCP envelope、**绝不放进 `structuredContent`**；`elementsComplete`/`truncated`/`screenshotFrameValid` 为可选字段，本插件在 `src/snapshot-policy.js` 中据此拒绝静默不完整的元素集与失效截图帧。
+
 ## 限制
 
 - 本次没有安装或运行 Cua、没有访问桌面；不会在此阶段探测实时窗口。启动路径仅允许非桌面握手/元数据，不枚举应用、窗口或截图。
+- `test/driver-options.test.js` 会 import SDK 载入库本身以核对选项记录；这只加载原生库（uniffi 的 `initialize()` 做版本检查），不调用任何 driver 方法、不创建 worker、不枚举桌面。
 - Cua/worker 进程依然有桌面用户权限；Windows Session 0 / SSH 非交互服务进程不可假定能够访问登录桌面。
 - 上游 native package 许可包含 MIT AND MPL-2.0；发布前需维护者完成许可审阅。
