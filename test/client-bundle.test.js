@@ -88,7 +88,16 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   }
   const slots = {
     inject(name, register) { deferredSlot.set(name, register) },
-    register(spec, Component, extra) { registered.push({ spec, Component, extra }); return () => { registered.length -= 1 } },
+    // `slots.register` accepts `(options, component)` or `(options, component, { inject })`.
+    // Anything else is a contract violation the real renderer rejects, and a bad
+    // third argument left the settings section silently blank in v0.1.6/v0.1.7.
+    register(spec, Component, extra) {
+      if (extra !== undefined && (typeof extra !== 'object' || extra === null || (extra.inject !== undefined && typeof extra.inject !== 'function'))) {
+        throw new Error(`slot "${spec?.id}" was registered with an invalid third argument`)
+      }
+      registered.push({ spec, Component, extra })
+      return () => { registered.length -= 1 }
+    },
   }
   const active = locale.toLowerCase().startsWith('zh') ? 'zh' : 'en'
   const localeService = {
@@ -138,10 +147,14 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     effectCursor = 0
     effects.length = 0
     const t = key => dictionaries.get('computerUseSafeWin')?.[active]?.[key] ?? key
-    const element = registered[0].Component({ close() {}, t, configForms, ...registered[0].extra })
+    const element = renderNode(registered[0].Component({ close() {}, t, configForms }, registered[0].extra?.inject?.() ?? {}))
     renderCurrentTarget = { elements: { enabled: { checked: Boolean(findElement(element, node => node.type === 'input' && node.props.type === 'checkbox')?.props.checked) } } }
     for (const effect of effects) effect()
     return element
+  }
+  /** Resolve an element whose type is a component, as React would. */
+  function renderNode(node) {
+    return node && typeof node.type === 'function' ? renderNode(node.type(node.props)) : node
   }
   const render = async () => {
     let element = draw()
@@ -159,7 +172,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     await button.props.onClick()
     await settle()
   }
-  return { namespace, registered, render, press, seen, installs, spec: registered[0].spec, form }
+  return { namespace, registered, render, press, seen, installs, spec: registered[0].spec, form, entry: () => registered[0] }
 }
 
 const textOf = element => JSON.stringify(element)

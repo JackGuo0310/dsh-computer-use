@@ -50,7 +50,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.7
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.8
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「测试驱动」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。
@@ -178,7 +178,22 @@ v0.1.6 的安装按钮走的是**本插件自己的 Host 路由**，于是形成
 
 Host 侧仍为 `inject: ['connection', 'computerUse']`——这是 DSH 官方 Cua computer-use 包的做法：取注册表，但不 import 宿主包，因此不引入副本。
 
-**升级后仍需两次重启**：一次让本插件宿主半生效，一次让新装的前置包生效。若设置分区仍空白，请在浏览器硬刷新（Ctrl+Shift+R）以取到新的浏览器半产物。
+**升级后仍需两次重启**：一次让本插件宿主半生效，一次让新装的前置包生效。
+
+### 0.1.7 → 0.1.8（设置分区一直空白的真正原因）
+
+v0.1.6 / v0.1.7 的分区一直空白，**和前置组件无关**。真正原因：宿主 `slots.register` 只有两个重载——`(options, component)` 与 `(options, component, { inject })`。插件传了第三个普通对象 `{ prerequisites }`，契约不符，注册时抛错，整个分区根本没有渲染。
+
+本版改用最基础的注册重载，通过闭包把插件管理器传给组件：
+
+```js
+const Section = props => h(DriverSettings, { ...props, pluginManager: manager })
+ctx.slots.inject('settings.section', () => ctx.slots.register({ … }, Section))
+```
+
+同时给测试桩加了注册契约校验：第三个参数只接受 `{ inject: function }`，否则直接抛错——这类错误不会再悄悄通过测试。
+
+**升级步骤**：改地址为 `#v0.1.8` → 浏览器硬刷新（Ctrl+Shift+R）→ 重启 DSH → 打开「电脑操控」，应能看到「缺少前置组件」和安装按钮 → 安装 → 再重启一次。
 
 ## 许可证
 

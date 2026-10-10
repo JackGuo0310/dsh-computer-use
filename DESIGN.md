@@ -134,6 +134,8 @@ Host 半 `inject: ['connection', 'computerUse']`。
 
 **前置依赖的查询与安装一律由浏览器半完成**（`remote.pluginManager.listBundles()` / `installBundle()`），**不得**放在本插件的 Host 路由里：在前置包装好之前宿主半根本不会激活，它自己的路由无法应答「装没装」，会形成死锁（v0.1.6 的缺陷，`/requirements` 路由因此被删除）。同理，插件**绝不**直接改 profile 文件——`dependencies` 与 `bundles` 由插件管理器写，只走受管安装接口。
 
+**浏览器半注册分区只用 `slots.register(options, component)` 重载**，附加数据经闭包传入（`const Section = props => h(DriverSettings, { ...props, pluginManager: manager })`）。第三参数仅接受 `{ inject }`；传普通对象会令注册抛错、分区完全不渲染（v0.1.6 / v0.1.7 的空白即由此而来）。测试桩强制该契约，使这类错误不再静默通过。
+
 ## 宿主依赖边界（0.1.1 起强制）
 
 插件**不得**在运行时 import 任何 `@deepseek-ai/dsh-*` 宿主**运行时**包，也**不得**把这类包写进

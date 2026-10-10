@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
     // `installPrerequisite` is supplied by the apply closure rather than read from
     // `ctx` here: the Host may not mount the plugin-manager client half, and a
     // component must not reach for a service the panel declares no inject for.
-    function DriverSettings({ t, configForms, prerequisites }) {
+    function DriverSettings({ t, configForms, pluginManager }) {
       const [status, setStatus] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
       const [error, setError] = React.useState('')
@@ -102,11 +102,10 @@ window.__ModuleLoader__.load({
        * answers exactly this question.
        */
       React.useEffect(() => {
-        const manager = prerequisites?.installed
-        if (manager === undefined) { setRegistry({ installed: false }); return }
+        if (pluginManager === undefined) { setRegistry({ installed: false }); return }
         let live = true
         void (async () => {
-          const result = await manager()
+          const result = await pluginManager.listBundles()
           if (live) setRegistry({ installed: result.ok && result.value.some(bundle => bundle.name === REQUIRED_PACKAGE) })
         })().catch(() => { if (live) setRegistry({ installed: false }) })
         return () => { live = false }
@@ -124,14 +123,17 @@ window.__ModuleLoader__.load({
      * `dependencies` and `bundles` consistent.
      */
       async function runInstallPrerequisite() {
-        const manager = prerequisites?.install
-        if (manager === undefined) return
+        if (pluginManager === undefined) return
         if (!window.confirm(t('needConfirm'))) return
         setRegistryBusy(true)
         setError('')
         setNotice('')
         try {
-          const result = await manager()
+          const result = await pluginManager.installBundle(REQUIRED_PACKAGE, {
+            enabled: false,
+            requestId: crypto.randomUUID(),
+            registry: undefined,
+          })
           if (!result.ok) throw new Error(result.error?.message ?? t('error'))
           setNotice(t('needInstalled'))
         } catch (cause) {
@@ -227,7 +229,7 @@ window.__ModuleLoader__.load({
           ? h('div', { style: { padding: '8px', marginBottom: '12px', border: '1px solid var(--dsw-border-default, #53657b)', borderRadius: '8px' } },
             h('p', { style: { margin: '0 0 4px', fontWeight: 600 } }, t('needTitle')),
             h('p', { style: { margin: '0 0 8px' } }, t('needBody')),
-            prerequisites?.install === undefined
+            pluginManager === undefined
               ? null
               : h('button', { type: 'button', disabled: registryBusy, onClick: () => void runInstallPrerequisite() }, registryBusy ? t('needInstalling') : t('needInstall')))
           : null,
@@ -269,27 +271,23 @@ window.__ModuleLoader__.load({
         // plugin's Host half is still waiting for the prerequisite to appear.
         // Nothing here edits the profile: the plugin manager owns those files.
         const manager = ctx.remote?.pluginManager
-        const prerequisites = manager === undefined ? undefined : {
-          installed: () => manager.listBundles(),
-          install: () => manager.installBundle(REQUIRED_PACKAGE, {
-            enabled: false,
-            requestId: crypto.randomUUID(),
-            registry: undefined,
-          }),
-        }
         // DSH Settings forms are keyed by the Host profile entry id; this section
         // is that one registered entry's own configuration surface.
         ctx.configForms.get(CONFIG_ID)
         // A Settings nav entry, like every other settings feature: the driver
         // panel is a page of its own rather than a block inside the Plugins page.
         ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh: TEXT.zh, en: TEXT.en }), 'dsh-computer-use-safe-win: locale')
+        // The plugin manager is closed over instead of injected: it is optional
+        // (absent on a Host without that client half) and a plain closure keeps
+        // the component's props to what the slot contract always provides.
+        const Section = props => h(DriverSettings, { ...props, pluginManager: manager })
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
           id: 'computer-use-safe-win',
           order: 30,
           label: () => ctx.locale.bind(LOCALE_NS)('nav'),
           locale: LOCALE_NS,
-        }, DriverSettings, { prerequisites }))
+        }, Section))
       },
     }
   },
