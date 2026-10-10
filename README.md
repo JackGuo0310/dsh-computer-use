@@ -54,7 +54,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.12
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.13
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「刷新驱动状态」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。独占注册表 `@deepseek-ai/dsh-computer-use` 是可选的，挂载方法见 0.1.10 一节。
@@ -218,6 +218,12 @@ v0.1.9 之后仍有两个真实缺陷：
 **版本不写死**：Host 半从运行中的 Harness 入口脚本向上找到 `@deepseek-ai/dsh` 的 manifest 读出真实版本（例如 `0.2.1-alpha.1`），再从 npm 取该包的已发布版本，选**同一 core 版本**里最新的一个（`0.2.1-alpha.2`）。npm 不可达时命令退化为不带版本号的 `@deepseek-ai/dsh-computer-use`，不会凭空编造版本。命令里的 profile 名与配置文件路径来自 `DSH_PROFILE`/`DSH_PROFILE_DIR`，因此不同 profile 直接可用。
 
 **升级步骤**：改地址为 `#v0.1.12` → 浏览器硬刷新。若确实需要严格互斥，按面板给出的两条命令执行；不需要就忽略这张卡片。
+
+### 0.1.12 → 0.1.13（挂载步骤读取失败不再静默）
+
+0.1.12 在 `/registry-setup` 请求失败时什么都不显示——看起来就像「卡片里没有命令」，无法判断是 Host 半过期还是别的错误。本版把失败原因显式显示在卡片里，并附一条通用的可复制命令（profile 名处为占位符），因此即使 Host 半还没加载到新路由，用户也仍然拿到可用指令。
+
+**升级步骤**：改地址为 `#v0.1.13` → 浏览器硬刷新。若卡片里出现「无法读取挂载步骤: …」，说明 Host 半仍是旧代码，再重启一次 DSH。
 
 ## 许可证
 

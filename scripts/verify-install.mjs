@@ -95,6 +95,14 @@ async function main() {
     assert.equal(typeof report.supported, 'boolean')
     assert.equal(typeof report.version, 'string')
     assert.equal(report.installedVersion === null || typeof report.installedVersion === 'string', true)
+    // The panel asks this route for the two mounting steps; the answer must be
+    // complete whether or not the registry lookup reached npm.
+    const setupResponse = await routes.get('/api/computer-use-safe-win/registry-setup').fetch(new Request('http://127.0.0.1:3080/api/computer-use-safe-win/registry-setup'))
+    const setup = await setupResponse.json()
+    assert.equal(setupResponse.status, 200)
+    assert.equal(setup.installed, true, 'this composition provides the registry')
+    assert.match(setup.command, /^dsh plugin --profile \S+ add @deepseek-ai\/dsh-computer-use/)
+    assert.equal(setup.patch, "- insert:\n    - id: computer-use\n      name: '@deepseek-ai/dsh-computer-use'")
     await ctx.fiber.dispose()
     assert.equal(routes.size, 0, 'unload withdraws the settings routes')
 

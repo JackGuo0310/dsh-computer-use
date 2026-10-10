@@ -61,7 +61,7 @@ function configForm({ status = 'ready', enabled = false, allowedApps = [], writa
 }
 
 /** Evaluate the genuine browser artifact with DSH-like Cordis, React, slot, and fetch seams. */
-async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, deferManager = false, registry = registryReady, withConfigForms = true, document: hostDocument = undefined } = {}) {
+async function evaluate({ locale = 'zh-CN', respond = async () => absent, form = configForm(), withManager = true, deferManager = false, registry = registryReady, withConfigForms = true, document: hostDocument = undefined, setup = registrySetup } = {}) {
   const registered = []
   const deferredSlot = new Map()
   const effects = []
@@ -130,7 +130,7 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
   let registration
   const configForms = { get(id) { assert.equal(id, 'computer-use-safe-win'); return form } }
   const clipboard = { written: [], async writeText(value) { clipboard.written.push(value) } }
-  const answer = async (path, options) => path.endsWith('/registry-setup') ? registrySetup : respond(path, options)
+  const answer = async (path, options) => path.endsWith('/registry-setup') ? setup : respond(path, options)
   const sandbox = {
     navigator: { language: locale, clipboard },
     __configForms: configForms,
@@ -448,6 +448,20 @@ test('a missing registry offers the two copy-ready mounting steps', async () => 
   await copyButtons[1].props.onClick()
   assert.deepEqual(page.clipboard.written, [registrySetup.command, registrySetup.patch])
   assert.match(textOf(await page.render()), /已复制/)
+})
+
+test('an unanswered setup route reports the reason and still offers a runnable command', async () => {
+  // A stale Host half answers 404 here; the panel must say so instead of
+  // showing an empty card, and must still hand over a command that works.
+  const page = await evaluate({ registry: registryMissing, setup: { ok: false, status: 404, raw: 'not found' } })
+  const text = textOf(await page.render())
+  assert.match(text, /无法读取挂载步骤/)
+  assert.match(text, /Host 半未激活或路由不可用/)
+  assert.match(text, /dsh plugin --profile <你的 profile 名> add @deepseek-ai\/dsh-computer-use/)
+  const copyButtons = findElements(await page.render(), node => node.type === 'button' && node.children[0] === '复制')
+  assert.equal(copyButtons.length, 1)
+  await copyButtons[0].props.onClick()
+  assert.deepEqual(page.clipboard.written, ['dsh plugin --profile <你的 profile 名> add @deepseek-ai/dsh-computer-use'])
 })
 
 test('the panel adopts the plugin-manager namespace mounted after apply', async () => {
