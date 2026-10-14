@@ -121,7 +121,7 @@ test('startup registers only inspection tools and starts no worker', async () =>
   const h = harness()
   const provider = await start(h)
   assert.equal(h.state.provider, 'safe-win')
-  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe', 'safe_win_click_at'])
+  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe', 'safe_win_click_at', 'safe_win_type_text', 'safe_win_press_key'])
   assert.equal(h.state.sections.length, 1)
   assert.equal(provider.starts(), 0, 'mounting the provider must not start or enumerate the desktop')
   assert.equal(provider.runtime(), undefined)
@@ -158,7 +158,7 @@ test('an invalid live allowlist keeps the provider mounted and fails calls close
     // A bad persisted value must not unmount the settings surface, or the user
     // could not repair it from the GUI that wrote it.
     assert.equal(h.state.provider, 'safe-win')
-    assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe', 'safe_win_click_at'])
+    assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe', 'safe_win_click_at', 'safe_win_type_text', 'safe_win_press_key'])
     await assert.rejects(tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows')), /forbidden application|duplicate|64 applications/)
     assert.equal(provider.starts(), 0, 'no worker may start for a refused allowlist')
     await provider.dispose()
@@ -223,12 +223,27 @@ test('a window absent from a fresh listing is not observed', async () => {
   await provider.dispose()
 })
 
-test('no act tool exists while background semantic click behavior is unverified', async () => {
+test('every action tool is registered but refuses while its switch is off', async () => {
+  // Registering the tools is what lets a caller be told WHICH switch to turn on;
+  // with the default settings none of them may touch the driver.
   const h = harness()
-  const provider = await start(h)
-  assert.equal(h.state.tools.has('safe_win_act'), false)
-  assert.equal(h.state.tools.size, 3)
-  await provider.dispose()
+  let starts = 0
+  const provider = await startSafeWinProvider(h.ctx, {
+    readSettings: hostReader(liveSettings()),
+    startRuntime: async () => { starts += 1; return new StubRuntime() },
+  })
+  assert.equal(h.state.tools.has('safe_win_act'), false, 'there is still no catch-all act tool')
+  assert.equal(h.state.tools.size, 5)
+  const refusals = [
+    ['safe_win_click_at', { windowId: '4242', pid: 1234, x: 1, y: 1 }, /coordinate clicks are disabled/],
+    ['safe_win_type_text', { windowId: '4242', pid: 1234, text: 'hello' }, /text input is disabled/],
+    ['safe_win_press_key', { windowId: '4242', pid: 1234, combination: 'Enter' }, /text input is disabled/],
+  ]
+  for (const [name, args, expected] of refusals) {
+    await assert.rejects(tool(h.state, name).execute(args, exec(name)), expected)
+  }
+  assert.equal(starts, 0, 'a refused action must not start the driver worker')
+  await h.ctx.fiber.dispose()
 })
 
 test('a failed worker start surfaces on the first call and can be retried', async () => {
@@ -264,7 +279,7 @@ test('the provider mounts without the exclusive registry and adopts one mounted 
   // the service left the whole Host half pending forever.
   const h = harness({ registry: false })
   const provider = await start(h)
-  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe', 'safe_win_click_at'], 'the tools mount without a registry')
+  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe', 'safe_win_click_at', 'safe_win_type_text', 'safe_win_press_key'], 'the tools mount without a registry')
   assert.equal(h.state.provider, null, 'there is no slot to hold yet')
   h.ctx.provide('computerUse', providerSlot(h.state))
   await new Promise(resolve => setImmediate(resolve))

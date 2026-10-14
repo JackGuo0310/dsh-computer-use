@@ -198,16 +198,21 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     const t = key => dictionaries.get('computerUseSafeWin')?.[active]?.[key] ?? key
     const element = renderNode(registered[0].Component({ close() {}, t }, registered[0].extra?.inject?.() ?? {}))
     // The submit handler reads the form's own elements, so the harness mirrors
-    // the real `form.elements` lookup: the enable switch, the coordinate-click
-    // switch, and the budget input all carry their names.
+    // the real `form.elements` lookup: every switch and budget carries its name.
     const formElement = findElement(element, node => node.type === 'form')
     const checkboxNamed = name => findElement(formElement, node => node.type === 'input' && node.props.type === 'checkbox' && node.props.name === name)
     const numberNamed = name => findElement(formElement, node => node.type === 'input' && node.props.name === name)
+    const checked = name => Boolean(checkboxNamed(name)?.props.checked)
+    const valueOf = name => numberNamed(name)?.props.value ?? '5'
     renderCurrentTarget = {
       elements: {
-        enabled: { checked: Boolean(checkboxNamed('enabled')?.props.checked) },
-        allowCoordinateClicks: { checked: Boolean(checkboxNamed('allowCoordinateClicks')?.props.checked) },
-        clickBudgetPerSession: { value: numberNamed('clickBudgetPerSession')?.props.value ?? '5' },
+        enabled: { checked: checked('enabled') },
+        allowCoordinateClicks: { checked: checked('allowCoordinateClicks') },
+        clickBudgetPerSession: { value: valueOf('clickBudgetPerSession') },
+        allowForegroundActions: { checked: checked('allowForegroundActions') },
+        allowTextInput: { checked: checked('allowTextInput') },
+        textBudgetPerSession: { value: valueOf('textBudgetPerSession') },
+        showAgentCursor: { checked: checked('showAgentCursor') },
       },
     }
     for (const effect of effects) effect()
@@ -328,19 +333,30 @@ test('persistent GUI settings submit an atomic revision-fenced Host mutation', a
   assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
   assert.equal(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).enabled, true)
   assert.deepEqual(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).allowedApps, ['notepad.exe', 'c:\\program files\\app\\app.exe'])
-  // All four settings commit together under one revision fence: the click
-  // capability must never be able to drift from the observation settings.
-  assert.equal(form.writes[0].ops.length, 4)
-  assert.equal(form.writes[0].ops[0].path[0], 'allowedApps')
-  assert.deepEqual(JSON.parse(JSON.stringify(form.writes[0].ops[0].value)), ['notepad.exe', 'c:\\program files\\app\\app.exe'])
-  assert.equal(form.writes[0].ops[1].path[0], 'enabled')
-  assert.equal(form.writes[0].ops[1].value, true)
-  assert.equal(form.writes[0].ops[2].path[0], 'allowCoordinateClicks')
-  assert.equal(form.writes[0].ops[2].value, false)
-  assert.equal(form.writes[0].ops[3].path[0], 'clickBudgetPerSession')
-  assert.equal(form.writes[0].ops[3].value, 5)
-  assert.equal(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).allowCoordinateClicks, false)
-  assert.equal(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).clickBudgetPerSession, 5)
+  // Every setting commits together under one revision fence: an action switch
+  // must never be able to drift away from the observation settings it belongs to.
+  const sent = JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body)
+  assert.deepEqual([...form.writes[0].ops.map(op => op.path[0])].sort(), [
+    'allowCoordinateClicks', 'allowForegroundActions', 'allowTextInput', 'allowedApps',
+    'clickBudgetPerSession', 'enabled', 'showAgentCursor', 'textBudgetPerSession',
+  ])
+  assert.equal(form.writes[0].ops.length, 8)
+  const written = name => form.writes[0].ops.find(op => op.path[0] === name)?.value
+  assert.deepEqual(JSON.parse(JSON.stringify(written('allowedApps'))), ['notepad.exe', 'c:\\program files\\app\\app.exe'])
+  assert.equal(written('enabled'), true)
+  // The action switches default to OFF, so an ordinary save can never turn a
+  // capability on by omission.
+  for (const [field, expected] of [
+    ['allowCoordinateClicks', false],
+    ['clickBudgetPerSession', 5],
+    ['allowForegroundActions', false],
+    ['allowTextInput', false],
+    ['textBudgetPerSession', 2000],
+    ['showAgentCursor', false],
+  ]) {
+    assert.equal(sent[field], expected, `${field} must be sent as ${expected}`)
+    assert.equal(written(field), expected)
+  }
   assert.equal(findElement(await page.render(), node => node.type === 'input' && node.props.type === 'checkbox').props.checked, true)
   assert.match(textOf(await page.render()), /Host 已接受配置并完成持久化/sg)
 })
@@ -367,6 +383,10 @@ test('GUI settings surface Host refusal without claiming success', async () => {
         enabled: { checked: false },
         allowCoordinateClicks: { checked: false },
         clickBudgetPerSession: { value: '5' },
+        allowForegroundActions: { checked: false },
+        allowTextInput: { checked: false },
+        textBudgetPerSession: { value: '2000' },
+        showAgentCursor: { checked: false },
       },
     },
   })

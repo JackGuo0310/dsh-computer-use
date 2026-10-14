@@ -35,10 +35,25 @@ export function projectTextResult(result, label) {
   return Object.freeze({ accepted: true, message: boundedText(result.text, 200) })
 }
 
+/**
+ * Delivery mode names shared with the caller.
+ *
+ * `Background` never raises the window, never steals focus and never moves the
+ * system pointer; it is the only mode that does not disturb the person at the
+ * keyboard. `Foreground` is what a self-drawn interface needs, and it does move
+ * the pointer and switch focus, so it is opt-in.
+ */
+export const DELIVERY = Object.freeze({ background: 'background', foreground: 'foreground' })
+
 function assertDriver(driver) {
   for (const method of ['listApps', 'listWindows', 'getWindowState', 'click', 'verifyState', 'shutdown']) {
     if (typeof driver?.[method] !== 'function') throw new Error(`Cua Driver runtime lacks ${method}`)
   }
+}
+
+/** Delivery-mode helpers the visual layer also needs, resolved lazily per call. */
+function deliveryEnum(mode) {
+  return mode === DELIVERY.foreground ? InputDeliveryMode.Foreground : InputDeliveryMode.Background
 }
 
 /**
@@ -93,6 +108,7 @@ export async function startCuaRuntime({ driverFactory = CuaDriver.createPrivateW
 export class CuaRuntime {
   #driver
   #queue = new OperationQueue()
+  #session = undefined
 
   constructor(driver) { this.#driver = driver }
 
@@ -260,20 +276,22 @@ export class CuaRuntime {
    * - the position must be a finite integer pair inside the CURRENT window
    *   bounds, re-read immediately before the click, so a point cannot escape
    *   the allowlisted window onto another window or another display;
-   * - delivery stays `Background` and the target stays the window, so this never
-   *   raises the window, never moves the system pointer, and cannot become a
-   *   desktop-wide click;
+   * - the target stays the window and the point stays inside it. Delivery is
+   *   `Background` unless the caller explicitly asks for `Foreground`, which is
+   *   what a self-drawn interface needs and what moves the system pointer and
+   *   raises the window;
    * - the driver still reports its own outcome, which is NOT evidence. Confirm
    *   the click from a fresh observation of the same window.
    *
    * @param target - Frozen window identity from a fresh listing.
    * @param point - `{ x, y }` in window coordinates, as read off an observation image.
-   * @param signal - Optional abort signal.
+   * @param options - `{ delivery }` and an optional abort signal.
    * @returns Projected action result with effect, route, and delivery status.
    */
-  clickAt(target, point, signal) {
+  clickAt(target, point, { delivery = DELIVERY.background, signal } = {}) {
     if (typeof point?.x !== 'number' || typeof point?.y !== 'number') return Promise.reject(new Error('a click point needs numeric x and y'))
     if (!Number.isInteger(point.x) || !Number.isInteger(point.y)) return Promise.reject(new Error('a click point must use whole pixels'))
+    if (delivery !== DELIVERY.background && delivery !== DELIVERY.foreground) return Promise.reject(new Error(`unknown delivery mode: ${String(delivery)}`))
     return this.#enqueue(async () => {
       const current = await this.#window(target.pid, target.windowId)
       if (current.app !== target.app || !current.isOnScreen || current.minimized) throw new Error('Cua window identity changed before action')
@@ -284,12 +302,56 @@ export class CuaRuntime {
       const result = await this.#driver.click({
         target: new ActionTarget.Window({ pid: target.pid, windowId: target.windowId }),
         position: new ClickPosition.Coordinates({ x: point.x, y: point.y }),
-        deliveryMode: InputDeliveryMode.Background,
+        deliveryMode: deliveryEnum(delivery),
         button: ClickButton.Left,
         count: 1,
       })
       return projectActionResult(result)
     }, signal)
+  }
+
+  /**
+   * Show or hide the driver's agent cursor and the frame around one window.
+   *
+   * This is the "you can see what it is doing" layer: an oversized cursor and a
+   * coloured frame, either of which the driver composes. Neither changes how a
+   * click is delivered, and neither is required for a click to work — the cursor
+   * theme id is left at the driver's default because the driver exposes no
+   * listing of valid ids.
+   *
+   * @param target - Frozen window identity from a fresh listing.
+   * @param options - `{ visible }` and an optional abort signal.
+   * @returns Frozen report of what the driver accepted.
+   */
+  async showAgentCursor(target, { visible, signal } = {}) {
+    if (typeof visible !== 'boolean') throw new Error('the agent cursor switch needs a boolean')
+    return this.#enqueue(async () => {
+      const current = await this.#window(target.pid, target.windowId)
+      if (current.app !== target.app || !current.isOnScreen || current.minimized) throw new Error('Cua window identity changed before showing the cursor')
+      const session = await this.#agentSession()
+      await this.#driver.setAgentCursorEnabled({ session, enabled: visible })
+      // The frame must trace the window's REAL geometry: the driver refuses a
+      // rectangle the window does not settle at.
+      await this.#driver.setWindowFrame({
+        pid: current.pid,
+        windowId: current.windowId,
+        x: current.bounds.x,
+        y: current.bounds.y,
+        width: current.bounds.width,
+        height: current.bounds.height,
+      })
+      return Object.freeze({ session, app: current.app, windowId: current.windowId.toString(), visible })
+    }, signal)
+  }
+
+  /** One lazily created session label, so the cursor layer has a stable id. */
+  async #agentSession() {
+    this.#session ??= `safe-win-${process.pid.toString(36)}`
+    const started = await this.#driver.startSession({ session: this.#session })
+    if (typeof started?.state?.session !== 'string' || started.state.session === '') {
+      throw new Error('Cua returned no session for the agent cursor')
+    }
+    return started.state.session
   }
 
   /**

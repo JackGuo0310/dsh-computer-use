@@ -16,12 +16,12 @@ window.__ModuleLoader__.load({
     const PACKAGE_NAME = 'dsh-computer-use-safe-win'
     // Kept in lockstep with package.json by `test/client-bundle.test.js`: the
     // section has no build step that could inject the manifest's version.
-    const PLUGIN_VERSION = '0.1.18'
+    const PLUGIN_VERSION = '0.1.19'
     const EXECUTABLE_NAME = /^[\w.-]{1,128}\.exe$/i
     const EXECUTABLE_PATH = /^[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n]+[\\/])*[^\\/:*?"<>|\r\n]+\.exe$/i
     const TEXT = {
-      zh: { nav: '电脑操控', title: 'Cua Driver', registryTitle: '未挂载独占注册表（可选）', registryBody: '本插件可独立运行。若在 profile 里挂载 @deepseek-ai/dsh-computer-use，本插件会自动取得独占槽位，避免与其它 computer-use 提供者同时控制桌面；该包没有 bundle patch，DSH 插件管理器无法安装，只能在 profile 的 cordis.patch.yml 里手动挂载。', statusUnknown: '驱动状态未知（Host 半未激活）', hostInactive: 'Host 半未激活或路由不可用', clickTitle: '启用坐标点击', clickOn: '已开启：可以在没有无障碍树的窗口里按像素点击。每次点击后必须重新观察确认。', clickOff: '已关闭（默认）：插件只能读取，不能点击任何位置。', budgetTitle: '单会话点击上限', budgetDesc: '一次会话内最多可花费的坐标点击数，用尽后一律拒绝，不会自动重试。', driverStatus: '受管驱动状态', driverNote: '安装与来源', registryInexact: '未发布与当前 DSH 完全同版本的构建，这里取同版本线最新；它可能要求不同的 dsh-brand。', registryUnverified: '（未查询到 npm 版本列表，直接采用当前 DSH 版本；若该构建未发布，安装会明确报错。）', registryResolved: '版本解析', registrySetupFailed: '无法读取挂载步骤', registryFallback: 'dsh plugin --profile <你的 profile 名> add @deepseek-ai/dsh-computer-use', registryStep1: '① 安装该包（版本按当前 DSH 解析，未写死）', registryStep2: '② 在 profile 的 cordis.patch.yml 中加入这一条（也可用右上角「打开配置文件」）', copy: '复制', copied: '已复制', intro: '先安装受管驱动并确认状态。安装不会开启桌面观察；保存配置也不会绕过平台、驱动或白名单检查。', test: '刷新驱动状态', refresh: '正在检查…', checked: '状态已刷新', install: '安装驱动', confirm: '从 trycua 官方发行版下载并安装固定版本驱动？', busy: '正在安装…', absent: '未安装', ready: '受管驱动已安装（未启动验证）', unsupported: '当前系统不支持', version: '受管版本', expected: '目标版本', error: '请求失败', remote: '仅本机浏览器允许安装；远程连接请在主机本机打开设置页。', configTitle: '观察配置', configIntro: '只有白名单里的应用才能被列举和观察。每一项可以是可执行文件名（如 notepad.exe，更宽松）或绝对路径（如 C:\\Program Files\\App\\app.exe，更精确）。保存后立即对后续调用生效，无需重启。请只添加可信应用。', enabled: '启用窗口观察', allowlist: '允许的应用白名单', addApp: '添加应用', removeApp: '删除', appPlaceholder: 'notepad.exe 或 C:\\Program Files\\App\\app.exe', emptyList: '白名单为空；启用观察前至少添加一个应用。', pickApp: '从运行中的应用选择', picking: '正在读取…', candidatesTitle: '正在运行的应用', candidatesEmpty: '没有可添加的应用。', candidatesNote: '有路径时默认添加绝对路径，更精确；没有路径的应用只能按文件名添加。', add: '添加', save: '保存配置', saving: '正在保存…', loading: '正在读取 Host 配置…', unavailable: 'Host 配置不可用；请在本机设置页重试。', readonly: '当前连接不可写。请使用 DSH 主机本机浏览器修改持久配置。', saved: 'Host 已接受配置并完成持久化；对后续调用立即生效。', invalid: '请检查配置', disabled: '观察功能已关闭。', enabledStatus: '观察功能已启用；运行时及驱动仍需单独验证。', configError: '配置保存失败或发生版本冲突；请刷新页面后重试。' },
-      en: { nav: 'Computer Use', title: 'Cua Driver', registryTitle: 'Exclusive registry not mounted (optional)', registryBody: 'This plugin runs standalone. Mount @deepseek-ai/dsh-computer-use in the profile and this plugin takes the exclusive computer-use slot, so a second provider can never share the desktop. That package ships no bundle patch, so the DSH plugin manager cannot install it; mount it in the profile cordis.patch.yml.', statusUnknown: 'Driver status unknown (Host half inactive)', hostInactive: 'The Host half is not active or its routes are unavailable', clickTitle: 'Enable coordinate clicks', clickOn: 'On: pixels may be clicked in windows that expose no accessibility tree. Re-observe after every click to confirm it.', clickOff: 'Off (default): the plugin can only read, never click.', budgetTitle: 'Clicks per session', budgetDesc: 'How many coordinate clicks one session may spend. Running out refuses further clicks instead of retrying.', driverStatus: 'Managed driver status', driverNote: 'Installation and origin', registryInexact: 'No build matches this exact DSH version, so the newest sibling of the same release line is offered; it may require a different dsh-brand.', registryUnverified: '(the published version list could not be read, so the running DSH version is used as-is; installation fails loudly if that build was never published.)', registryResolved: 'Version resolution', registrySetupFailed: 'Could not read the mounting steps', registryFallback: 'dsh plugin --profile <your profile> add @deepseek-ai/dsh-computer-use', registryStep1: '1. Install the package (the version is resolved from the running DSH, never pinned here)', registryStep2: '2. Add this row to the profile cordis.patch.yml (the header button "Open config file" works too)', copy: 'Copy', copied: 'Copied', intro: 'Install and verify the managed driver status. Installation never enables observation; saving configuration does not bypass platform, driver, or allowlist checks.', test: 'Refresh driver status', refresh: 'Checking…', checked: 'Status refreshed', install: 'Install driver', confirm: 'Download and install the pinned driver from the official trycua release?', busy: 'Installing…', absent: 'Not installed', ready: 'Managed driver installed (runtime not tested)', unsupported: 'Unsupported system', version: 'Managed version', expected: 'Target version', error: 'Request failed', remote: 'Installation is restricted to the local browser; open settings on the Host.', configTitle: 'Observation settings', configIntro: 'Only allowlisted applications can be listed or observed. Each entry is either an executable filename (notepad.exe, broader) or an absolute path (C:\\Program Files\\App\\app.exe, stricter). A save applies to later calls without a restart. Add only trusted applications.', enabled: 'Enable window observation', allowlist: 'Allowed applications', addApp: 'Add application', removeApp: 'Remove', appPlaceholder: 'notepad.exe or C:\\Program Files\\App\\app.exe', emptyList: 'The allowlist is empty; add at least one application before enabling observation.', pickApp: 'Choose a running application', picking: 'Reading…', candidatesTitle: 'Running applications', candidatesEmpty: 'No application is available to add.', candidatesNote: 'Applications that report a path are added by absolute path, which is stricter. The rest can only be added by filename.', add: 'Add', save: 'Save settings', saving: 'Saving…', loading: 'Loading Host settings…', unavailable: 'Host settings are unavailable; retry from the local settings page.', readonly: 'This connection cannot write persistent settings. Use the Host’s local browser.', saved: 'Host accepted and persisted the settings; they apply to later calls at once.', invalid: 'Check the settings', disabled: 'Observation is disabled.', enabledStatus: 'Observation is enabled; runtime and driver behavior still require separate verification.', configError: 'Settings save failed or conflicted; reload the page and retry.' },
+      zh: { nav: '电脑操控', title: 'Cua Driver', registryTitle: '未挂载独占注册表（可选）', registryBody: '本插件可独立运行。若在 profile 里挂载 @deepseek-ai/dsh-computer-use，本插件会自动取得独占槽位，避免与其它 computer-use 提供者同时控制桌面；该包没有 bundle patch，DSH 插件管理器无法安装，只能在 profile 的 cordis.patch.yml 里手动挂载。', statusUnknown: '驱动状态未知（Host 半未激活）', hostInactive: 'Host 半未激活或路由不可用', clickTitle: '启用坐标点击', clickOn: '已开启：可以在没有无障碍树的窗口里按像素点击。每次点击后必须重新观察确认。', clickOff: '已关闭（默认）：插件只能读取，不能点击任何位置。', budgetTitle: '单会话点击上限', budgetDesc: '一次会话内最多可花费的坐标点击数，用尽后一律拒绝，不会自动重试。', clickTitle: '启用坐标点击', clickOn: '已开启：可以在没有无障碍树的窗口里按像素点击。每次点击后必须重新观察确认。', clickOff: '已关闭（默认）：插件只能读取，不能点击任何位置。', budgetTitle: '单会话点击上限', budgetDesc: '一次会话内最多可花费的坐标点击数，用尽后一律拒绝，不会自动重试。', foregroundTitle: '允许前台操作', foregroundOn: '已开启：自绘界面可以操作，但插件会移动鼠标指针并把窗口切到前台。', foregroundOff: '已关闭（默认）：一切都在后台完成，不动你的鼠标。', textTitle: '允许文本输入', textOn: '已开启：插件可以输入文字，会改变数据。请只在明确授权时开启。', textOff: '已关闭（默认）：只能观察，不能输入。', textBudgetTitle: '单会话输入上限', textBudgetDesc: '一次会话内最多可输入的字符数，用尽后一律拒绝，不会自动继续。', cursorTitle: '显示操作光标与窗口边框', cursorOn: '已开启：操作时会显示放大的光标并高亮目标窗口。', cursorOff: '已关闭（默认）：不显示任何视觉提示。', driverStatus: '受管驱动状态', driverNote: '安装与来源', registryInexact: '未发布与当前 DSH 完全同版本的构建，这里取同版本线最新；它可能要求不同的 dsh-brand。', registryUnverified: '（未查询到 npm 版本列表，直接采用当前 DSH 版本；若该构建未发布，安装会明确报错。）', registryResolved: '版本解析', registrySetupFailed: '无法读取挂载步骤', registryFallback: 'dsh plugin --profile <你的 profile 名> add @deepseek-ai/dsh-computer-use', registryStep1: '① 安装该包（版本按当前 DSH 解析，未写死）', registryStep2: '② 在 profile 的 cordis.patch.yml 中加入这一条（也可用右上角「打开配置文件」）', copy: '复制', copied: '已复制', intro: '先安装受管驱动并确认状态。安装不会开启桌面观察；保存配置也不会绕过平台、驱动或白名单检查。', test: '刷新驱动状态', refresh: '正在检查…', checked: '状态已刷新', install: '安装驱动', confirm: '从 trycua 官方发行版下载并安装固定版本驱动？', busy: '正在安装…', absent: '未安装', ready: '受管驱动已安装（未启动验证）', unsupported: '当前系统不支持', version: '受管版本', expected: '目标版本', error: '请求失败', remote: '仅本机浏览器允许安装；远程连接请在主机本机打开设置页。', configTitle: '观察配置', configIntro: '只有白名单里的应用才能被列举和观察。每一项可以是可执行文件名（如 notepad.exe，更宽松）或绝对路径（如 C:\\Program Files\\App\\app.exe，更精确）。保存后立即对后续调用生效，无需重启。请只添加可信应用。', enabled: '启用窗口观察', allowlist: '允许的应用白名单', addApp: '添加应用', removeApp: '删除', appPlaceholder: 'notepad.exe 或 C:\\Program Files\\App\\app.exe', emptyList: '白名单为空；启用观察前至少添加一个应用。', pickApp: '从运行中的应用选择', picking: '正在读取…', candidatesTitle: '正在运行的应用', candidatesEmpty: '没有可添加的应用。', candidatesNote: '有路径时默认添加绝对路径，更精确；没有路径的应用只能按文件名添加。', add: '添加', save: '保存配置', saving: '正在保存…', loading: '正在读取 Host 配置…', unavailable: 'Host 配置不可用；请在本机设置页重试。', readonly: '当前连接不可写。请使用 DSH 主机本机浏览器修改持久配置。', saved: 'Host 已接受配置并完成持久化；对后续调用立即生效。', invalid: '请检查配置', disabled: '观察功能已关闭。', enabledStatus: '观察功能已启用；运行时及驱动仍需单独验证。', configError: '配置保存失败或发生版本冲突；请刷新页面后重试。' },
+      en: { nav: 'Computer Use', title: 'Cua Driver', registryTitle: 'Exclusive registry not mounted (optional)', registryBody: 'This plugin runs standalone. Mount @deepseek-ai/dsh-computer-use in the profile and this plugin takes the exclusive computer-use slot, so a second provider can never share the desktop. That package ships no bundle patch, so the DSH plugin manager cannot install it; mount it in the profile cordis.patch.yml.', statusUnknown: 'Driver status unknown (Host half inactive)', hostInactive: 'The Host half is not active or its routes are unavailable', clickTitle: 'Enable coordinate clicks', clickOn: 'On: pixels may be clicked in windows that expose no accessibility tree. Re-observe after every click to confirm it.', clickOff: 'Off (default): the plugin can only read, never click.', budgetTitle: 'Clicks per session', budgetDesc: 'How many coordinate clicks one session may spend. Running out refuses further clicks instead of retrying.', clickTitle: 'Enable coordinate clicks', clickOn: 'On: pixels may be clicked in windows that expose no accessibility tree. Re-observe after every click to confirm it.', clickOff: 'Off (default): the plugin can only read, never click.', budgetTitle: 'Clicks per session', budgetDesc: 'How many coordinate clicks one session may spend. Running out refuses further clicks instead of retrying.', foregroundTitle: 'Allow foreground actions', foregroundOn: 'On: self-drawn interfaces can be operated, but the plugin moves your pointer and raises the window.', foregroundOff: 'Off (default): everything happens in the background and your mouse is never touched.', textTitle: 'Allow text input', textOn: 'On: the plugin may type text, which changes data. Turn this on only when explicitly authorized.', textOff: 'Off (default): observe only, never type.', textBudgetTitle: 'Characters per session', textBudgetDesc: 'How many characters one session may type. Running out refuses further input instead of continuing.', cursorTitle: 'Show the action cursor and window frame', cursorOn: 'On: an enlarged cursor appears and the target window is outlined while acting.', cursorOff: 'Off (default): no visual indication.', driverStatus: 'Managed driver status', driverNote: 'Installation and origin', registryInexact: 'No build matches this exact DSH version, so the newest sibling of the same release line is offered; it may require a different dsh-brand.', registryUnverified: '(the published version list could not be read, so the running DSH version is used as-is; installation fails loudly if that build was never published.)', registryResolved: 'Version resolution', registrySetupFailed: 'Could not read the mounting steps', registryFallback: 'dsh plugin --profile <your profile> add @deepseek-ai/dsh-computer-use', registryStep1: '1. Install the package (the version is resolved from the running DSH, never pinned here)', registryStep2: '2. Add this row to the profile cordis.patch.yml (the header button "Open config file" works too)', copy: 'Copy', copied: 'Copied', intro: 'Install and verify the managed driver status. Installation never enables observation; saving configuration does not bypass platform, driver, or allowlist checks.', test: 'Refresh driver status', refresh: 'Checking…', checked: 'Status refreshed', install: 'Install driver', confirm: 'Download and install the pinned driver from the official trycua release?', busy: 'Installing…', absent: 'Not installed', ready: 'Managed driver installed (runtime not tested)', unsupported: 'Unsupported system', version: 'Managed version', expected: 'Target version', error: 'Request failed', remote: 'Installation is restricted to the local browser; open settings on the Host.', configTitle: 'Observation settings', configIntro: 'Only allowlisted applications can be listed or observed. Each entry is either an executable filename (notepad.exe, broader) or an absolute path (C:\\Program Files\\App\\app.exe, stricter). A save applies to later calls without a restart. Add only trusted applications.', enabled: 'Enable window observation', allowlist: 'Allowed applications', addApp: 'Add application', removeApp: 'Remove', appPlaceholder: 'notepad.exe or C:\\Program Files\\App\\app.exe', emptyList: 'The allowlist is empty; add at least one application before enabling observation.', pickApp: 'Choose a running application', picking: 'Reading…', candidatesTitle: 'Running applications', candidatesEmpty: 'No application is available to add.', candidatesNote: 'Applications that report a path are added by absolute path, which is stricter. The rest can only be added by filename.', add: 'Add', save: 'Save settings', saving: 'Saving…', loading: 'Loading Host settings…', unavailable: 'Host settings are unavailable; retry from the local settings page.', readonly: 'This connection cannot write persistent settings. Use the Host’s local browser.', saved: 'Host accepted and persisted the settings; they apply to later calls at once.', invalid: 'Check the settings', disabled: 'Observation is disabled.', enabledStatus: 'Observation is enabled; runtime and driver behavior still require separate verification.', configError: 'Settings save failed or conflicted; reload the page and retry.' },
     }
 
     /**
@@ -153,6 +153,10 @@ window.__ModuleLoader__.load({
       const [draftEnabled, setDraftEnabled] = React.useState(null)
       const [draftClicks, setDraftClicks] = React.useState(null)
       const [draftBudget, setDraftBudget] = React.useState(null)
+      const [draftForeground, setDraftForeground] = React.useState(null)
+      const [draftText, setDraftText] = React.useState(null)
+      const [draftTextBudget, setDraftTextBudget] = React.useState(null)
+      const [draftCursor, setDraftCursor] = React.useState(null)
       const formRef = React.useRef(null)
       formRef.current ??= configForms?.get(CONFIG_ID)
       const form = formRef.current
@@ -205,6 +209,10 @@ window.__ModuleLoader__.load({
         setDraftEnabled(null)
         setDraftClicks(null)
         setDraftBudget(null)
+        setDraftForeground(null)
+        setDraftText(null)
+        setDraftTextBudget(null)
+        setDraftCursor(null)
       }, [config.revision])
       /**
        * Read the two mounting steps once the plugin manager confirms the registry
@@ -284,31 +292,49 @@ window.__ModuleLoader__.load({
           const allowedApps = normalizeRows(rows)
           const enabled = draftEnabled ?? Boolean(event.currentTarget.elements.enabled.checked)
           if (enabled && allowedApps.length === 0) throw new Error('enabled observation requires a nonempty allowlist')
-          // The pixel path is a separate, opt-in capability: it is written
-          // together with the observation settings, but it is refused unless a
-          // person turned it on here.
+          // The pixel path and text entry are separate, opt-in capabilities: they are
+          // written together with the observation settings, but each is refused
+          // unless a person turned on that one switch here.
           const allowCoordinateClicks = draftClicks ?? event.currentTarget.elements.allowCoordinateClicks.checked
-          const rawBudget = draftBudget ?? event.currentTarget.elements.clickBudgetPerSession.value
-          const clickBudgetPerSession = Number(rawBudget)
+          const clickBudgetPerSession = Number(draftBudget ?? event.currentTarget.elements.clickBudgetPerSession.value)
           if (!Number.isInteger(clickBudgetPerSession) || clickBudgetPerSession < 1 || clickBudgetPerSession > 50) {
             throw new Error('clickBudgetPerSession must be a whole number between 1 and 50')
           }
+          const allowForegroundActions = draftForeground ?? event.currentTarget.elements.allowForegroundActions.checked
+          const allowTextInput = draftText ?? event.currentTarget.elements.allowTextInput.checked
+          const textBudgetPerSession = Number(draftTextBudget ?? event.currentTarget.elements.textBudgetPerSession.value)
+          if (!Number.isInteger(textBudgetPerSession) || textBudgetPerSession < 1 || textBudgetPerSession > 20000) {
+            throw new Error('textBudgetPerSession must be a whole number between 1 and 20000')
+          }
+          const showAgentCursor = draftCursor ?? event.currentTarget.elements.showAgentCursor.checked
+          const settings = {
+            enabled,
+            allowedApps,
+            allowCoordinateClicks,
+            clickBudgetPerSession,
+            allowForegroundActions,
+            allowTextInput,
+            textBudgetPerSession,
+            showAgentCursor,
+          }
           const validation = await request(VALIDATE, {
             method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ enabled, allowedApps, allowCoordinateClicks, clickBudgetPerSession }),
+            body: JSON.stringify(settings),
           })
           if (validation.valid !== true) throw new Error(validation.error || t('invalid'))
-          const accepted = await formRef.current.mutate([
-            { op: 'set', path: ['allowedApps'], value: allowedApps },
-            { op: 'set', path: ['enabled'], value: enabled },
-            { op: 'set', path: ['allowCoordinateClicks'], value: allowCoordinateClicks },
-            { op: 'set', path: ['clickBudgetPerSession'], value: clickBudgetPerSession },
-          ], config.revision)
+          const accepted = await formRef.current.mutate(
+            Object.keys(settings).map((field) => ({ op: 'set', path: [field], value: settings[field] })),
+            config.revision,
+          )
           if (!accepted) throw new Error(t('configError'))
           setDraftRows(null)
           setDraftEnabled(null)
           setDraftClicks(null)
           setDraftBudget(null)
+          setDraftForeground(null)
+          setDraftText(null)
+          setDraftTextBudget(null)
+          setDraftCursor(null)
           setNotice(t('saved'))
         } catch (cause) { setError(`${t('invalid')}: ${String(cause.message || cause)}`) }
         finally { setConfigBusy(false) }
@@ -449,6 +475,34 @@ window.__ModuleLoader__.load({
                     disabled: !canWrite || configBusy,
                     onChange: event => setDraftBudget(event.target.value),
                   }))),
+              // Each remaining capability is its own switch, and each states the
+              // cost it carries: moving your pointer, changing data, or nothing.
+              h('div', { className: 'cu-row' },
+                text(t('foregroundTitle'), (draftForeground ?? config.value.allowForegroundActions) ? t('foregroundOn') : t('foregroundOff')),
+                toggle('allowForegroundActions', t('foregroundTitle'), draftForeground ?? config.value.allowForegroundActions,
+                  event => setDraftForeground(event.target.checked), !canWrite || configBusy)),
+              h('div', { className: 'cu-row' },
+                text(t('textTitle'), (draftText ?? config.value.allowTextInput) ? t('textOn') : t('textOff')),
+                toggle('allowTextInput', t('textTitle'), draftText ?? config.value.allowTextInput,
+                  event => setDraftText(event.target.checked), !canWrite || configBusy)),
+              h('div', { className: 'cu-row' },
+                text(t('textBudgetTitle'), t('textBudgetDesc')),
+                h('span', { className: 'cu-control' },
+                  h('input', {
+                    className: 'cu-input cu-inputNumber',
+                    type: 'number',
+                    name: 'textBudgetPerSession',
+                    min: 1,
+                    max: 20000,
+                    step: 1,
+                    value: String(draftTextBudget ?? config.value.textBudgetPerSession ?? 2000),
+                    disabled: !canWrite || configBusy,
+                    onChange: event => setDraftTextBudget(event.target.value),
+                  }))),
+              h('div', { className: 'cu-row' },
+                text(t('cursorTitle'), (draftCursor ?? config.value.showAgentCursor) ? t('cursorOn') : t('cursorOff')),
+                toggle('showAgentCursor', t('cursorTitle'), draftCursor ?? config.value.showAgentCursor,
+                  event => setDraftCursor(event.target.checked), !canWrite || configBusy)),
               h('div', { className: 'cu-row cu-rowEnd' },
                 button(configBusy ? t('saving') : t('save'), undefined, { type: 'submit', disabled: !canWrite || configBusy, primary: true })))),
         error ? h('p', { className: 'cu-notice', role: 'alert' }, error) : null)

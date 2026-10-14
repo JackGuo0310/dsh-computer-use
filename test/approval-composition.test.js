@@ -99,7 +99,7 @@ test('all approval outcomes leave the tool catalog unchanged', async () => {
     for (const outcome of ['allowed-once', 'rejected', 'cancelled', 'unavailable']) {
       assert.equal(typeof ctx.get('approval')?.request, 'function')
       assert.deepEqual(ctx.tools.schemas().map(schema => schema.name).sort(), tools)
-      assert.deepEqual([...tools].sort(), ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe'])
+      assert.deepEqual([...tools].sort(), ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe', 'safe_win_press_key', 'safe_win_type_text'])
     }
   } finally { await cleanup() }
 })

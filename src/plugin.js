@@ -23,6 +23,12 @@ export const inject = ['connection']
 export const Config = SettingsSchema
 export const validateConfig = validateSettingsConfig
 
+// Delivery-mode names shared with the adapter. They are plain strings so the
+// plugin layer does not have to import the Cua SDK just to name a mode; the
+// adapter maps them onto the driver's enum and rejects anything it does not
+// recognise.
+const DELIVERY = Object.freeze({ background: 'background', foreground: 'foreground' })
+
 const PROVIDER = 'safe-win'
 const CHILD = 'computer-use-safe-win.runtime'
 const GUIDANCE = [
@@ -97,6 +103,7 @@ export async function startSafeWinProvider(ctx, { readSettings, startRuntime }) 
    * them. Exhausting the budget is a refusal, never a downgrade to a retry.
    */
   let clicksSpent = 0
+  let charactersSpent = 0
   function spendClick() {
     const settings = validateSettingsConfig(readSettings())
     if (settings.allowCoordinateClicks !== true) {
@@ -106,6 +113,38 @@ export async function startSafeWinProvider(ctx, { readSettings, startRuntime }) 
       throw new Error(`this session already spent its budget of ${settings.clickBudgetPerSession} coordinate clicks; continue observing instead of clicking again`)
     }
     clicksSpent += 1
+  }
+
+  /**
+   * Read the live settings, refusing anything the person has not switched on.
+   *
+   * @param flag - One of the opt-in action switches.
+   * @param label - Human name of the setting, for the refusal message.
+   * @returns The resolved settings.
+   */
+  function requireEnabled(flag, label) {
+    const settings = validateSettingsConfig(readSettings())
+    if (settings[flag] !== true) throw new Error(`${label} is disabled in the computer-use plugin settings; enable it there to allow this`)
+    return settings
+  }
+
+  /**
+   * Spend one character's worth of the session's typing budget.
+   *
+   * A refused budget is a refusal, never a downgrade: a half-typed form is
+   * worse than an untouched one.
+   *
+   * @param length - Characters about to be entered.
+   * @returns The resolved settings.
+   */
+  function spendText(length) {
+    const settings = requireEnabled('allowTextInput', 'text input')
+    const remaining = settings.textBudgetPerSession - charactersSpent
+    if (length > remaining) {
+      throw new Error(`typing ${length} characters would exceed this session's budget of ${settings.textBudgetPerSession} (${charactersSpent} spent); continue observing instead`)
+    }
+    charactersSpent += length
+    return settings
   }
 
   /** Start the private worker once, on first use, bound to the plugin lifetime. */
@@ -232,22 +271,97 @@ export async function startSafeWinProvider(ctx, { readSettings, startRuntime }) 
             async (args, exec) => run(exec, async signal => {
               if (!/^\d{1,20}$/.test(args.windowId) || BigInt(args.windowId) <= 0n) throw new Error('invalid windowId')
               const allowedApps = currentAllowlist()
+              const settings = validateSettingsConfig(readSettings())
               spendClick()
               const active = await worker()
               const targets = await active.listTargets(allowedApps, signal)
               const target = targets.find(item => item.pid === args.pid && item.windowId.toString() === args.windowId)
               if (!target) throw new Error('window is no longer an eligible listed target')
               const identity = validateWindow(target, allowedApps)
-              const result = await active.clickAt(identity, { x: args.x, y: args.y }, signal)
+              // Foreground delivery is the only way to reach a self-drawn window,
+              // and it moves the pointer and raises the window, so it needs its
+              // own switch and is named in the result.
+              const delivery = settings.allowForegroundActions === true ? DELIVERY.foreground : DELIVERY.background
+              if (settings.showAgentCursor === true) await active.showAgentCursor(identity, { visible: true, signal })
+              const result = await active.clickAt(identity, { x: args.x, y: args.y }, { delivery, signal })
               return defined({
                 window: { ...identity, windowId: identity.windowId.toString() },
                 point: { x: args.x, y: args.y },
                 effect: result.effect,
                 route: result.route,
                 delivery: result.delivery,
-                clicksRemaining: Math.max(0, validateSettingsConfig(readSettings()).clickBudgetPerSession - clicksSpent),
+                requestedDelivery: delivery,
+                clicksRemaining: Math.max(0, settings.clickBudgetPerSession - clicksSpent),
                 // The driver never reports evidence that a click landed; only a
                 // fresh observation of this same window can show that.
+                confirmed: false,
+              })
+            }),
+          ))
+          // Text entry. It changes data, so it is a separate switch from clicking
+          // and it is refused before any driver work when that switch is off.
+          yield inner.tools.register(tool(
+            'safe_win_type_text',
+            'Type literal text into a currently listed allowlisted window that already has keyboard focus. This writes data: confirm the exact text with the person before calling it, and read the window back afterwards.',
+            {
+              windowId: { type: 'string', required: true, description: 'Opaque windowId copied exactly from safe_win_list_windows; never guess it.' },
+              pid: { type: 'integer', required: true, description: 'PID copied from the same listed window.' },
+              text: { type: 'string', required: true, description: 'Literal text to type. No escapes, no formatting codes.' },
+            },
+            async (args, exec) => run(exec, async signal => {
+              if (!/^\d{1,20}$/.test(args.windowId) || BigInt(args.windowId) <= 0n) throw new Error('invalid windowId')
+              if (typeof args.text !== 'string' || args.text.length === 0) throw new Error('text to type must be a nonempty string')
+              const allowedApps = currentAllowlist()
+              const settings = spendText(args.text.length)
+              const active = await worker()
+              const targets = await active.listTargets(allowedApps, signal)
+              const target = targets.find(item => item.pid === args.pid && item.windowId.toString() === args.windowId)
+              if (!target) throw new Error('window is no longer an eligible listed target')
+              const identity = validateWindow(target, allowedApps)
+              if (settings.showAgentCursor === true) await active.showAgentCursor(identity, { visible: true, signal })
+              const result = await active.typeText(identity, args.text, signal)
+              return defined({
+                window: { ...identity, windowId: identity.windowId.toString() },
+                characters: args.text.length,
+                accepted: result.accepted,
+                charactersRemaining: Math.max(0, settings.textBudgetPerSession - charactersSpent),
+                // Typing has no delivery status: the window is the only evidence.
+                confirmed: false,
+              })
+            }),
+          ))
+          yield inner.tools.register(tool(
+            'safe_win_press_key',
+            'Press one key combination in a currently listed allowlisted window that already has keyboard focus, written as "Key" or "Ctrl+Shift+Key" (for example Tab, Enter, Escape, F5, Ctrl+A).',
+            {
+              windowId: { type: 'string', required: true, description: 'Opaque windowId copied exactly from safe_win_list_windows; never guess it.' },
+              pid: { type: 'integer', required: true, description: 'PID copied from the same listed window.' },
+              combination: { type: 'string', required: true, description: 'Key or modifier combination such as Tab, Enter, Escape, F5, Ctrl+A, Ctrl+Shift+Enter. Use an empty modifier list only by passing the bare key.' },
+            },
+            async (args, exec) => run(exec, async signal => {
+              if (!/^\d{1,20}$/.test(args.windowId) || BigInt(args.windowId) <= 0n) throw new Error('invalid windowId')
+              const allowedApps = currentAllowlist()
+              // The combination is parsed here so the caller never has to pass two
+              // arguments that can disagree (a key with a stale modifier list).
+              const parts = String(args.combination).split('+').map(part => part.trim()).filter(part => part !== '')
+              if (parts.length === 0 || parts.length > 4) throw new Error('key combination must be "Key" or up to three modifiers plus a key')
+              const [key, ...modifiers] = parts.length > 1 ? [parts.at(-1), ...parts.slice(0, -1)] : parts
+              if (key === undefined || key === '') throw new Error('key combination must name a key')
+              // A key press is an action like any other, so the text switch gates
+              // it — and it gates BEFORE the worker starts, so a refused press
+              // never boots the driver.
+              spendText(1)
+              const active = await worker()
+              const targets = await active.listTargets(allowedApps, signal)
+              const target = targets.find(item => item.pid === args.pid && item.windowId.toString() === args.windowId)
+              if (!target) throw new Error('window is no longer an eligible listed target')
+              const identity = validateWindow(target, allowedApps)
+              const result = await active.pressKey(identity, key, modifiers, signal)
+              return defined({
+                window: { ...identity, windowId: identity.windowId.toString() },
+                key,
+                modifiers,
+                accepted: result.accepted,
                 confirmed: false,
               })
             }),
@@ -292,6 +406,10 @@ export function resolveObservationConfig(config) {
     allowedApps: configValue(config?.allowedApps) ?? [],
     allowCoordinateClicks: configValue(config?.allowCoordinateClicks) === true,
     clickBudgetPerSession: configValue(config?.clickBudgetPerSession) ?? 5,
+    allowForegroundActions: configValue(config?.allowForegroundActions) === true,
+    allowTextInput: configValue(config?.allowTextInput) === true,
+    textBudgetPerSession: configValue(config?.textBudgetPerSession) ?? 2000,
+    showAgentCursor: configValue(config?.showAgentCursor) === true,
   }
 }
 

@@ -95,7 +95,7 @@ test('a disabled plugin loads, mounts its tools, and refuses every observation c
   try {
     assert.equal(result.loaded, true, String(result.error))
     const names = result.ctx.tools.schemas().map(schema => schema.name).sort()
-    assert.deepEqual([...names].sort(), ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe'])
+    assert.deepEqual([...names].sort(), ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe', 'safe_win_press_key', 'safe_win_type_text'])
     const listed = await result.ctx.tools.execute({ callId: 'list-1', name: 'safe_win_list_windows', arguments: {}, signal: new AbortController().signal })
     assert.match(JSON.stringify(listed), /observation is disabled/)
   } finally {
@@ -109,15 +109,40 @@ test('volatile config handles are read through get(), not as truthy objects', ()
   assert.equal(typeof resolved.enabled.get, 'function', 'this regression only exists while the fields are volatile')
   // Every setting must survive the projection: the 0.1.17 bug dropped
   // `allowCoordinateClicks` here, so an enabled pixel path was refused forever.
-  const OFF = { allowCoordinateClicks: false, clickBudgetPerSession: 5 }
+  const OFF = {
+    allowCoordinateClicks: false,
+    clickBudgetPerSession: 5,
+    allowForegroundActions: false,
+    allowTextInput: false,
+    textBudgetPerSession: 2000,
+    showAgentCursor: false,
+  }
   assert.deepEqual(Plugin.resolveObservationConfig(resolved), { enabled: false, allowedApps: ['Notepad.exe'], ...OFF })
   assert.deepEqual(Plugin.resolveObservationConfig(Plugin.Config({ enabled: true, allowedApps: [] })), { enabled: true, allowedApps: [], ...OFF })
   assert.deepEqual(Plugin.resolveObservationConfig(undefined), { enabled: false, allowedApps: [], ...OFF })
   // Plain values stay supported so the plugin can run outside the settings projection.
   assert.deepEqual(Plugin.resolveObservationConfig({ enabled: true, allowedApps: ['a.exe'] }), { enabled: true, allowedApps: ['a.exe'], ...OFF })
   assert.deepEqual(
-    Plugin.resolveObservationConfig(Plugin.Config({ enabled: true, allowedApps: ['a.exe'], allowCoordinateClicks: true, clickBudgetPerSession: 9 })),
-    { enabled: true, allowedApps: ['a.exe'], allowCoordinateClicks: true, clickBudgetPerSession: 9 },
+    Plugin.resolveObservationConfig(Plugin.Config({
+      enabled: true,
+      allowedApps: ['a.exe'],
+      allowCoordinateClicks: true,
+      clickBudgetPerSession: 9,
+      allowForegroundActions: true,
+      allowTextInput: true,
+      textBudgetPerSession: 400,
+      showAgentCursor: true,
+    })),
+    {
+      enabled: true,
+      allowedApps: ['a.exe'],
+      allowCoordinateClicks: true,
+      clickBudgetPerSession: 9,
+      allowForegroundActions: true,
+      allowTextInput: true,
+      textBudgetPerSession: 400,
+      showAgentCursor: true,
+    },
   )
 })
 

@@ -87,19 +87,20 @@ async function main() {
     // cannot answer anything, so the browser half asks the plugin manager instead.
     // The provider mounts while observation is disabled so that enabling takes effect
     // on the next call; the tools refuse until the live settings enable it.
-    // The pixel click is registered too, so a caller can be told WHY it cannot
-    // click. This profile has observation disabled, which is the first gate the
-    // call meets; the click switch itself is asserted in `plugin.test.js`.
-    assert.deepEqual(ctx.tools.schemas().map(schema => schema.name).sort(), ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe'])
+    // The action tools are registered too, so a caller can be told WHY it cannot
+    // act. This profile has observation disabled, which is the first gate every
+    // call meets; the switches themselves are asserted in `plugin.test.js`.
+    assert.deepEqual(ctx.tools.schemas().map(schema => schema.name).sort(), ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe', 'safe_win_press_key', 'safe_win_type_text'])
     const refused = await ctx.tools.execute({ name: 'safe_win_list_windows', arguments: {}, callId: 'call-1', signal: new AbortController().signal })
     assert.match(JSON.stringify(refused), /observation is disabled/)
-    const pixelRefused = await ctx.tools.execute({
-      name: 'safe_win_click_at',
-      arguments: { windowId: '1', pid: 1, x: 1, y: 1 },
-      callId: 'call-pixel',
-      signal: new AbortController().signal,
-    })
-    assert.match(JSON.stringify(pixelRefused), /observation is disabled/)
+    for (const [name, args] of [
+      ['safe_win_click_at', { windowId: '1', pid: 1, x: 1, y: 1 }],
+      ['safe_win_type_text', { windowId: '1', pid: 1, text: 'hello' }],
+      ['safe_win_press_key', { windowId: '1', pid: 1, combination: 'Enter' }],
+    ]) {
+      const result = await ctx.tools.execute({ name, arguments: args, callId: `call-${name}`, signal: new AbortController().signal })
+      assert.match(JSON.stringify(result), /observation is disabled/, `${name} must refuse while observation is off`)
+    }
     const status = await routes.get('/api/computer-use-safe-win/status').fetch(new Request('http://127.0.0.1:3080/api/computer-use-safe-win/status'))
     const report = await status.json()
     assert.equal(typeof report.supported, 'boolean')

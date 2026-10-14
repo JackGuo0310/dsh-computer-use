@@ -55,7 +55,16 @@ test('the config validator rejects invalid types and empty enabled allowlists', 
   assert.equal(typeof Plugin.Config.toJSON, 'function')
   assert.throws(() => Plugin.validateConfig({ enabled: 'true', allowedApps: [] }), /enabled must be an explicit boolean/)
   assert.throws(() => Plugin.validateConfig({ enabled: true, allowedApps: [] }), /nonempty executable allowlist/)
-  assert.deepEqual(Plugin.validateConfig({ enabled: false, allowedApps: [] }), { enabled: false, allowedApps: [], allowCoordinateClicks: false, clickBudgetPerSession: 5 })
+  assert.deepEqual(Plugin.validateConfig({ enabled: false, allowedApps: [] }), {
+    enabled: false,
+    allowedApps: [],
+    allowCoordinateClicks: false,
+    clickBudgetPerSession: 5,
+    allowForegroundActions: false,
+    allowTextInput: false,
+    textBudgetPerSession: 2000,
+    showAgentCursor: false,
+  })
 })
 
 test('the allowlist accepts an absolute path entry as well as a filename', () => {
