@@ -107,11 +107,18 @@ test('a disabled plugin loads, mounts its tools, and refuses every observation c
 test('volatile config handles are read through get(), not as truthy objects', () => {
   const resolved = Plugin.Config({ enabled: false, allowedApps: ['Notepad.exe'] })
   assert.equal(typeof resolved.enabled.get, 'function', 'this regression only exists while the fields are volatile')
-  assert.deepEqual(Plugin.resolveObservationConfig(resolved), { enabled: false, allowedApps: ['Notepad.exe'] })
-  assert.deepEqual(Plugin.resolveObservationConfig(Plugin.Config({ enabled: true, allowedApps: [] })), { enabled: true, allowedApps: [] })
-  assert.deepEqual(Plugin.resolveObservationConfig(undefined), { enabled: false, allowedApps: [] })
+  // Every setting must survive the projection: the 0.1.17 bug dropped
+  // `allowCoordinateClicks` here, so an enabled pixel path was refused forever.
+  const OFF = { allowCoordinateClicks: false, clickBudgetPerSession: 5 }
+  assert.deepEqual(Plugin.resolveObservationConfig(resolved), { enabled: false, allowedApps: ['Notepad.exe'], ...OFF })
+  assert.deepEqual(Plugin.resolveObservationConfig(Plugin.Config({ enabled: true, allowedApps: [] })), { enabled: true, allowedApps: [], ...OFF })
+  assert.deepEqual(Plugin.resolveObservationConfig(undefined), { enabled: false, allowedApps: [], ...OFF })
   // Plain values stay supported so the plugin can run outside the settings projection.
-  assert.deepEqual(Plugin.resolveObservationConfig({ enabled: true, allowedApps: ['a.exe'] }), { enabled: true, allowedApps: ['a.exe'] })
+  assert.deepEqual(Plugin.resolveObservationConfig({ enabled: true, allowedApps: ['a.exe'] }), { enabled: true, allowedApps: ['a.exe'], ...OFF })
+  assert.deepEqual(
+    Plugin.resolveObservationConfig(Plugin.Config({ enabled: true, allowedApps: ['a.exe'], allowCoordinateClicks: true, clickBudgetPerSession: 9 })),
+    { enabled: true, allowedApps: ['a.exe'], allowCoordinateClicks: true, clickBudgetPerSession: 9 },
+  )
 })
 
 test('a well-formed allowlist loads the inspection tools', async () => {

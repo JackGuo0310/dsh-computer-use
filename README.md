@@ -66,7 +66,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.16
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.17
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「刷新驱动状态」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。独占注册表 `@deepseek-ai/dsh-computer-use` 是可选的，挂载方法见 0.1.10 一节。
@@ -269,6 +269,15 @@ v0.1.9 之后仍有两个真实缺陷：
 **升级步骤**：改地址为 `#v0.1.16` → 重启 DSH（Host 半新增了一个工具与两个设置字段）→ 打开「电脑操控」，默认应看到「启用坐标点击」处于关闭状态。
 
 **尚未验证**：坐标点击在真实宿主中的落点与后台投递效果**没有 live 验收**，需要你本人开启开关后实测。
+
+### 0.1.16 → 0.1.17（修复「开了开关仍被拒绝」）
+
+0.1.16 的坐标点击**永远被拒绝**，与 profile 设置无关：esolveObservationConfig() 只投影了 nabled 与 llowedApps 两个字段，llowCoordinateClicks 在读取时就丢了，于是「是否允许像素点击」永远是 alse。是用户在真实宿主上开启开关后实测才发现的。
+
+- 修复：投影补齐四个字段，并把 	est/plugin.test.js 的设置读取改为**经过 esolveObservationConfig**（此前测试自己拼装字段，绕过了这段代码，因此没抓到）；	est/config-validation.test.js 补上四个字段的断言与一个「volatile handle 开启时能读出 true」的用例。
+- 验证方式：临时删掉这两行，三条点击用例会立刻失败——回归测试确实覆盖了这条路径。
+
+**升级步骤**：改地址为 #v0.1.17 → 重启 DSH。
 
 ## 许可证
 

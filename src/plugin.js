@@ -284,12 +284,14 @@ function configValue(value) {
  * Resolve the effective observation settings from one resolved Config.
  *
  * @param config - Resolved plugin Config, possibly holding volatile handles.
- * @returns `enabled` and `allowedApps` as plain values.
+ * @returns Every plugin setting as a plain value, including the pixel-click opt-in.
  */
 export function resolveObservationConfig(config) {
   return {
     enabled: configValue(config?.enabled) === true,
     allowedApps: configValue(config?.allowedApps) ?? [],
+    allowCoordinateClicks: configValue(config?.allowCoordinateClicks) === true,
+    clickBudgetPerSession: configValue(config?.clickBudgetPerSession) ?? 5,
   }
 }
 

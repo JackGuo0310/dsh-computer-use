@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
-import { startSafeWinProvider } from '../src/plugin.js'
+import { resolveObservationConfig, startSafeWinProvider } from '../src/plugin.js'
 
 const target = {
   windowId: 4242n, pid: 1234, app: 'notepad.exe', title: 'Untitled - Notepad',
@@ -85,15 +85,29 @@ function settings(allowedApps = ['notepad.exe'], enabled = true) {
 
 /** The provider reads live settings per call; tests mutate this holder in place. */
 function liveSettings(enabled = true, allowedApps = ['notepad.exe']) {
-  return { enabled, allowedApps }
+  return { enabled, allowedApps, allowCoordinateClicks: false, clickBudgetPerSession: 5 }
+}
+/**
+ * Read settings the way the Host does.
+ *
+ * This goes through `resolveObservationConfig` on purpose: the 0.1.17 bug was
+ * that the projection dropped `allowCoordinateClicks`, so every click was
+ * refused no matter what the profile said. A test that hand-built its own
+ * reader would never have seen it.
+ */
+function hostReader(live) {
+  return () => resolveObservationConfig({
+    enabled: live.enabled,
+    allowedApps: live.allowedApps,
+    allowCoordinateClicks: live.allowCoordinateClicks,
+    clickBudgetPerSession: live.clickBudgetPerSession,
+  })
 }
 async function start(h, factory = async () => new StubRuntime(), live = liveSettings()) {
   let runtime
   let starts = 0
   await startSafeWinProvider(h.ctx, {
-    // The whole holder is forwarded, not just the two legacy fields: a test may
-    // set the click settings the same way.
-    readSettings: () => ({ ...live }),
+    readSettings: hostReader(live),
     startRuntime: async signal => {
       starts += 1
       runtime = await factory(signal)
