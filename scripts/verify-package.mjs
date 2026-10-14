@@ -114,7 +114,8 @@ async function main() {
       await ctx.loader.await()
       for (const fiber of ctx.loader.entries()) await fiber.fiber?.await()
       const names = ctx.tools.schemas().map(schema => schema.name).sort()
-      assert.deepEqual(names, ['safe_win_list_windows', 'safe_win_observe'])
+      // The pixel click ships but stays inert: observation-only by default.
+      assert.deepEqual(names, ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe'])
       assert.deepEqual(registrations, ['safe-win'])
       console.log('installed package loads through the real Loader with inspection-only tools')
       await ctx.fiber.dispose()

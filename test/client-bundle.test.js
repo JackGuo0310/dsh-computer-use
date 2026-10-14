@@ -41,8 +41,8 @@ function fakeDocument() {
   }
 }
 
-function configForm({ status = 'ready', enabled = false, allowedApps = [], writable = true, mode = 'host', revision = 1, accept = true } = {}) {
-  let current = { status, value: status === 'ready' ? { enabled, allowedApps } : undefined, base: {}, user: {}, revision, writable, mode }
+function configForm({ status = 'ready', enabled = false, allowedApps = [], writable = true, mode = 'host', revision = 1, accept = true, allowCoordinateClicks = false, clickBudgetPerSession = 5 } = {}) {
+  let current = { status, value: status === 'ready' ? { enabled, allowedApps, allowCoordinateClicks, clickBudgetPerSession } : undefined, base: {}, user: {}, revision, writable, mode }
   const listeners = new Set()
   const writes = []
   const form = {
@@ -197,7 +197,19 @@ async function evaluate({ locale = 'zh-CN', respond = async () => absent, form =
     effects.length = 0
     const t = key => dictionaries.get('computerUseSafeWin')?.[active]?.[key] ?? key
     const element = renderNode(registered[0].Component({ close() {}, t }, registered[0].extra?.inject?.() ?? {}))
-    renderCurrentTarget = { elements: { enabled: { checked: Boolean(findElement(element, node => node.type === 'input' && node.props.type === 'checkbox')?.props.checked) } } }
+    // The submit handler reads the form's own elements, so the harness mirrors
+    // the real `form.elements` lookup: the enable switch, the coordinate-click
+    // switch, and the budget input all carry their names.
+    const formElement = findElement(element, node => node.type === 'form')
+    const checkboxNamed = name => findElement(formElement, node => node.type === 'input' && node.props.type === 'checkbox' && node.props.name === name)
+    const numberNamed = name => findElement(formElement, node => node.type === 'input' && node.props.name === name)
+    renderCurrentTarget = {
+      elements: {
+        enabled: { checked: Boolean(checkboxNamed('enabled')?.props.checked) },
+        allowCoordinateClicks: { checked: Boolean(checkboxNamed('allowCoordinateClicks')?.props.checked) },
+        clickBudgetPerSession: { value: numberNamed('clickBudgetPerSession')?.props.value ?? '5' },
+      },
+    }
     for (const effect of effects) effect()
     return element
   }
@@ -316,11 +328,19 @@ test('persistent GUI settings submit an atomic revision-fenced Host mutation', a
   assert.deepEqual(page.seen.map(call => call.path), ['/api/computer-use-safe-win/status', '/api/computer-use-safe-win/validate-config'])
   assert.equal(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).enabled, true)
   assert.deepEqual(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).allowedApps, ['notepad.exe', 'c:\\program files\\app\\app.exe'])
-  assert.equal(form.writes[0].ops.length, 2)
+  // All four settings commit together under one revision fence: the click
+  // capability must never be able to drift from the observation settings.
+  assert.equal(form.writes[0].ops.length, 4)
   assert.equal(form.writes[0].ops[0].path[0], 'allowedApps')
   assert.deepEqual(JSON.parse(JSON.stringify(form.writes[0].ops[0].value)), ['notepad.exe', 'c:\\program files\\app\\app.exe'])
   assert.equal(form.writes[0].ops[1].path[0], 'enabled')
   assert.equal(form.writes[0].ops[1].value, true)
+  assert.equal(form.writes[0].ops[2].path[0], 'allowCoordinateClicks')
+  assert.equal(form.writes[0].ops[2].value, false)
+  assert.equal(form.writes[0].ops[3].path[0], 'clickBudgetPerSession')
+  assert.equal(form.writes[0].ops[3].value, 5)
+  assert.equal(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).allowCoordinateClicks, false)
+  assert.equal(JSON.parse(page.seen.find(call => call.path.endsWith('validate-config')).options.body).clickBudgetPerSession, 5)
   assert.equal(findElement(await page.render(), node => node.type === 'input' && node.props.type === 'checkbox').props.checked, true)
   assert.match(textOf(await page.render()), /Host 已接受配置并完成持久化/sg)
 })
@@ -340,8 +360,33 @@ test('GUI settings surface Host refusal without claiming success', async () => {
   const form = configForm({ accept: false })
   const page = await evaluate({ locale: 'en-US', form, respond: async path => path.endsWith('/validate-config') ? validConfig : absent })
   const submit = findElement(await page.render(), node => node.type === 'form')
-  await submit.props.onSubmit({ preventDefault() {}, currentTarget: { elements: { enabled: { checked: false } } } })
+  await submit.props.onSubmit({
+    preventDefault() {},
+    currentTarget: {
+      elements: {
+        enabled: { checked: false },
+        allowCoordinateClicks: { checked: false },
+        clickBudgetPerSession: { value: '5' },
+      },
+    },
+  })
   assert.match(textOf(await page.render()), /Settings save failed or conflicted/)
+})
+
+test('the panel offers the coordinate-click capability as an explicit opt-in', async () => {
+  // It must read as a separate, dangerous capability: off by default, with a
+  // visible budget, and with the consequence spelled out.
+  const page = await evaluate({ form: configForm({ enabled: true, allowedApps: ['notepad.exe'] }) })
+  const text = textOf(await page.render())
+  assert.match(text, /启用坐标点击/)
+  assert.match(text, /已关闭（默认）/s)
+  assert.match(text, /单会话点击上限/)
+  const form = findElement(await page.render(), node => node.type === 'form')
+  const clickToggle = findElement(form, node => node.type === 'input' && node.props.type === 'checkbox' && node.props.name === 'allowCoordinateClicks')
+  assert.equal(clickToggle.props.checked, false, 'the pixel path is never on until a person turns it on')
+  const budget = findElement(form, node => node.type === 'input' && node.props.name === 'clickBudgetPerSession')
+  assert.equal(budget.props.value, '5')
+  assert.equal(budget.props.max, 50)
 })
 
 test('opening settings checks driver status and refresh gives visible feedback', async () => {

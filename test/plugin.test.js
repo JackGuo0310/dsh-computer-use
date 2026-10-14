@@ -11,6 +11,7 @@ const target = {
 class StubRuntime {
   closed = false
   calls = []
+  clicks = []
   constructor({ observeWait, fail = false } = {}) { this.observeWait = observeWait; this.fail = fail }
   async listTargets(apps, signal) {
     signal?.throwIfAborted()
@@ -27,6 +28,13 @@ class StubRuntime {
       treeMarkdown: 'Button: Next', elements: [{ index: 0, role: 'button', label: 'Next', value: '', enabled: true, selected: false, token: 'opaque-token', actions: ['click'] }],
       truncated: false, images: [],
     }
+  }
+  /** The pixel path: a point inside the window, with no element identity. */
+  async clickAt(window, point, { signal } = {}) {
+    signal?.throwIfAborted()
+    this.calls.push('clickAt')
+    this.clicks.push(point)
+    return { effect: 'unverifiable', route: 'synthetic-events', delivery: { mode: 'background', deliveredCount: 1 } }
   }
   async close() { this.closed = true }
 }
@@ -79,12 +87,13 @@ function settings(allowedApps = ['notepad.exe'], enabled = true) {
 function liveSettings(enabled = true, allowedApps = ['notepad.exe']) {
   return { enabled, allowedApps }
 }
-
 async function start(h, factory = async () => new StubRuntime(), live = liveSettings()) {
   let runtime
   let starts = 0
   await startSafeWinProvider(h.ctx, {
-    readSettings: () => ({ enabled: live.enabled, allowedApps: [...live.allowedApps] }),
+    // The whole holder is forwarded, not just the two legacy fields: a test may
+    // set the click settings the same way.
+    readSettings: () => ({ ...live }),
     startRuntime: async signal => {
       starts += 1
       runtime = await factory(signal)
@@ -98,7 +107,7 @@ test('startup registers only inspection tools and starts no worker', async () =>
   const h = harness()
   const provider = await start(h)
   assert.equal(h.state.provider, 'safe-win')
-  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe'])
+  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe', 'safe_win_click_at'])
   assert.equal(h.state.sections.length, 1)
   assert.equal(provider.starts(), 0, 'mounting the provider must not start or enumerate the desktop')
   assert.equal(provider.runtime(), undefined)
@@ -135,7 +144,7 @@ test('an invalid live allowlist keeps the provider mounted and fails calls close
     // A bad persisted value must not unmount the settings surface, or the user
     // could not repair it from the GUI that wrote it.
     assert.equal(h.state.provider, 'safe-win')
-    assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe'])
+    assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe', 'safe_win_click_at'])
     await assert.rejects(tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows')), /forbidden application|duplicate|64 applications/)
     assert.equal(provider.starts(), 0, 'no worker may start for a refused allowlist')
     await provider.dispose()
@@ -204,7 +213,7 @@ test('no act tool exists while background semantic click behavior is unverified'
   const h = harness()
   const provider = await start(h)
   assert.equal(h.state.tools.has('safe_win_act'), false)
-  assert.equal(h.state.tools.size, 2)
+  assert.equal(h.state.tools.size, 3)
   await provider.dispose()
 })
 
@@ -241,7 +250,7 @@ test('the provider mounts without the exclusive registry and adopts one mounted 
   // the service left the whole Host half pending forever.
   const h = harness({ registry: false })
   const provider = await start(h)
-  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe'], 'the tools mount without a registry')
+  assert.deepEqual([...h.state.tools.keys()], ['safe_win_list_windows', 'safe_win_observe', 'safe_win_click_at'], 'the tools mount without a registry')
   assert.equal(h.state.provider, null, 'there is no slot to hold yet')
   h.ctx.provide('computerUse', providerSlot(h.state))
   await new Promise(resolve => setImmediate(resolve))
@@ -249,6 +258,63 @@ test('the provider mounts without the exclusive registry and adopts one mounted 
   assert.equal(h.state.provider, 'safe-win', 'a registry mounted later is adopted')
   await provider.dispose()
   assert.equal(h.state.provider, null, 'unloading releases the adopted registration')
+})
+
+test('a coordinate click is refused while the setting is off, before any driver work', async () => {
+  // The default profile is observation-only: the tool exists so a caller learns
+  // WHY it cannot click, but it must not start the worker or reach the driver.
+  const h = harness()
+  const live = { enabled: true, allowedApps: ['notepad.exe'] }
+  let starts = 0
+  await startSafeWinProvider(h.ctx, {
+    readSettings: () => live,
+    startRuntime: async () => { starts += 1; return new StubRuntime() },
+  })
+  await assert.rejects(
+    tool(h.state, 'safe_win_click_at').execute({ windowId: '4242', pid: 1234, x: 10, y: 10 }, exec('safe_win_click_at')),
+    /coordinate clicks are disabled/,
+  )
+  assert.equal(starts, 0, 'a refused click must not start the driver worker')
+  await h.ctx.fiber.dispose()
+})
+
+test('an enabled coordinate click stays inside the window and reports no evidence', async () => {
+  const h = harness()
+  const live = { enabled: true, allowedApps: ['notepad.exe'], allowCoordinateClicks: true, clickBudgetPerSession: 2 }
+  const provider = await start(h, async () => new StubRuntime(), live)
+  const result = await tool(h.state, 'safe_win_click_at').execute({ windowId: '4242', pid: 1234, x: 587, y: 58 }, exec('safe_win_click_at'))
+  assert.deepEqual(result.point, { x: 587, y: 58 })
+  assert.equal(result.effect, 'unverifiable', 'the driver never proves a pixel click landed')
+  assert.equal(result.confirmed, false, 'confirmation is the caller\'s fresh observation, not this result')
+  assert.equal(result.clicksRemaining, 1)
+  assert.equal(provider.runtime().clicks.length, 1)
+  await provider.dispose()
+})
+
+test('the session click budget refuses further clicks instead of retrying', async () => {
+  const h = harness()
+  const live = { enabled: true, allowedApps: ['notepad.exe'], allowCoordinateClicks: true, clickBudgetPerSession: 2 }
+  const provider = await start(h, async () => new StubRuntime(), live)
+  const click = () => tool(h.state, 'safe_win_click_at').execute({ windowId: '4242', pid: 1234, x: 1, y: 1 }, exec('safe_win_click_at'))
+  await click()
+  await click()
+  await assert.rejects(click(), /already spent its budget of 2 coordinate clicks/)
+  assert.equal(provider.runtime().clicks.length, 2, 'an exhausted budget must not deliver another click')
+  // Lowering the live budget also takes effect on the next call, not at startup.
+  live.clickBudgetPerSession = 1
+  await assert.rejects(click(), /already spent its budget of 1/)
+  await provider.dispose()
+})
+
+test('a coordinate click refuses a window that is no longer an eligible listed target', async () => {
+  const h = harness()
+  const live = { enabled: true, allowedApps: ['notepad.exe'], allowCoordinateClicks: true, clickBudgetPerSession: 5 }
+  const provider = await start(h, async () => new StubRuntime(), live)
+  await assert.rejects(
+    tool(h.state, 'safe_win_click_at').execute({ windowId: '4242', pid: 999999, x: 1, y: 1 }, exec('safe_win_click_at')),
+    /no longer an eligible listed target/,
+  )
+  await provider.dispose()
 })
 
 test('disposal during a lazy worker start aborts the start and leaks nothing', async () => {

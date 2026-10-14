@@ -87,9 +87,19 @@ async function main() {
     // cannot answer anything, so the browser half asks the plugin manager instead.
     // The provider mounts while observation is disabled so that enabling takes effect
     // on the next call; the tools refuse until the live settings enable it.
-    assert.deepEqual(ctx.tools.schemas().map(schema => schema.name).sort(), ['safe_win_list_windows', 'safe_win_observe'])
+    // The pixel click is registered too, so a caller can be told WHY it cannot
+    // click. This profile has observation disabled, which is the first gate the
+    // call meets; the click switch itself is asserted in `plugin.test.js`.
+    assert.deepEqual(ctx.tools.schemas().map(schema => schema.name).sort(), ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe'])
     const refused = await ctx.tools.execute({ name: 'safe_win_list_windows', arguments: {}, callId: 'call-1', signal: new AbortController().signal })
     assert.match(JSON.stringify(refused), /observation is disabled/)
+    const pixelRefused = await ctx.tools.execute({
+      name: 'safe_win_click_at',
+      arguments: { windowId: '1', pid: 1, x: 1, y: 1 },
+      callId: 'call-pixel',
+      signal: new AbortController().signal,
+    })
+    assert.match(JSON.stringify(pixelRefused), /observation is disabled/)
     const status = await routes.get('/api/computer-use-safe-win/status').fetch(new Request('http://127.0.0.1:3080/api/computer-use-safe-win/status'))
     const report = await status.json()
     assert.equal(typeof report.supported, 'boolean')

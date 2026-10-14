@@ -95,7 +95,7 @@ test('a disabled plugin loads, mounts its tools, and refuses every observation c
   try {
     assert.equal(result.loaded, true, String(result.error))
     const names = result.ctx.tools.schemas().map(schema => schema.name).sort()
-    assert.deepEqual(names, ['safe_win_list_windows', 'safe_win_observe'])
+    assert.deepEqual([...names].sort(), ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe'])
     const listed = await result.ctx.tools.execute({ callId: 'list-1', name: 'safe_win_list_windows', arguments: {}, signal: new AbortController().signal })
     assert.match(JSON.stringify(listed), /observation is disabled/)
   } finally {
@@ -114,7 +114,7 @@ test('volatile config handles are read through get(), not as truthy objects', ()
   assert.deepEqual(Plugin.resolveObservationConfig({ enabled: true, allowedApps: ['a.exe'] }), { enabled: true, allowedApps: ['a.exe'] })
 })
 
-test('a well-formed allowlist loads the two inspection-only tools', async () => {
+test('a well-formed allowlist loads the inspection tools', async () => {
   const applied = []
   const result = await loadWith(['  config:', '    enabled: true', '    allowedApps: ["notepad.exe"]'], { applied, stubProvider: true })
   try {

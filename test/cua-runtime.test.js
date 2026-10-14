@@ -54,6 +54,40 @@ test('a click is delivered as a background element click on the exact window', a
   assert.ok(Object.isFrozen(result))
 })
 
+test('a coordinate click is delivered in the background against the same window', async () => {
+  const driver = stubDriver()
+  const result = await new CuaRuntime(driver).clickAt(target, { x: 587, y: 58 })
+  const [, input] = driver.calls.find(([name]) => name === 'click')
+  assert.equal(input.target.tag, 'Window')
+  assert.equal(input.target.inner.pid, 4242)
+  assert.equal(input.target.inner.windowId, WINDOW_ID)
+  assert.equal(input.position.tag, 'Coordinates')
+  assert.deepEqual(input.position.inner, { x: 587, y: 58 })
+  assert.equal(input.deliveryMode, 0, 'a pixel click must stay background too, so it never raises the window')
+  assert.equal(input.count, 1)
+  assert.equal(result.delivery.mode, 'background')
+})
+
+test('a coordinate outside the current window is refused before the driver is called', async () => {
+  // The bounds come from a fresh window read, not from the caller's snapshot, so
+  // a point cannot escape the allowlisted window onto another one.
+  const driver = stubDriver()
+  const runtime = new CuaRuntime(driver)
+  for (const point of [{ x: 800, y: 0 }, { x: 0, y: 600 }, { x: -1, y: 10 }, { x: 10, y: -1 }]) {
+    await assert.rejects(runtime.clickAt(target, point), /outside the window 800x600/)
+  }
+  assert.equal(driver.calls.some(([name]) => name === 'click'), false, 'no click may reach the driver')
+})
+
+test('a coordinate click refuses a fractional or missing point', async () => {
+  const driver = stubDriver()
+  const runtime = new CuaRuntime(driver)
+  await assert.rejects(runtime.clickAt(target, { x: 1.5, y: 2 }), /whole pixels/)
+  await assert.rejects(runtime.clickAt(target, { x: 1 }), /numeric x and y/)
+  await assert.rejects(runtime.clickAt(target, undefined), /numeric x and y/)
+  assert.equal(driver.calls.some(([name]) => name === 'click'), false)
+})
+
 test('the driver outcome is reported by name and an unknown outcome is refused', async () => {
   const runtime = driver => new CuaRuntime(driver)
   const partial = await runtime(stubDriver({ clickResult: { effect: 1, route: 2, delivery: { mode: 1 } } })).click(target, 't')

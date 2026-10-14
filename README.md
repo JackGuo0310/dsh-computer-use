@@ -9,11 +9,11 @@
 - 完整迁移方案：[DESIGN.md](<DESIGN.md>)。
 - 新会话可直接使用的实施提示词：[HANDOFF.md](<HANDOFF.md>)。
 - 阶段 A 的版本/API 静态证据见 [STAGE-A.md](<STAGE-A.md>)。Cua SDK 已作为开发依赖安装以供静态测试；Driver 可执行文件未安装、worker 未运行，真实桌面、截图和输入均未触及。
-- 当前安全边界是**观察-only**：只注册 `safe_win_list_windows` 与 `safe_win_observe`，且不向模型暴露 Cua element token。动作、审批后执行与结果验证尚未接入；不把上游能力写成本插件已通过的能力。
+- 当前安全边界默认仍是**观察-only**：默认配置下只注册并可用 `safe_win_list_windows` 与 `safe_win_observe`，且不向模型暴露 Cua element token。0.1.16 起另有一个**默认关闭**的像素路径 `safe_win_click_at`（见下），用于没有无障碍树的窗口；它默认被设置挡住，文字输入与按键仍完全不开放。
   - 快照的完整性判定与边界投影在 `src/snapshot-policy.js`，不 import Cua SDK，因此可桌面无关地测试：拒绝非目标窗口、degraded、静默不完整元素集和失效截图帧，并限制 element 数、文本长度与图像字节。显式 `truncated` 仍作为可见信息返回。
   - 调用串行化与取消语义在 `src/operation-queue.js`（同样不 import Cua SDK）：同一 runtime 一次只发一个 driver 调用；超时或取消只让调用方停止等待，worker 可能仍在执行，因此被放弃的调用会把 runtime 置为 quarantine 并拒绝后续调用，关闭时先在有界预算内 drain 再 shutdown，不自动重放。
   - worker 启动选项在 `src/driver-options.js`，由测试对着真实 SDK 断言整份记录。SDK 的 record factory 只做 `Object.freeze({...defaults(), ...partial})`、不做校验，所以「仅 Standard 权限模式、不确认 unrestricted、TTL 上限」这些授权上限只有断言在保证。该测试只加载 SDK，不启动 worker。
-- `safe_win_observe` 的 `screenshot` 现在可用：截图经宿主附件服务存为 durable 引用，模型可看到图像块。图像字节不进入结果 JSON（按服务名取 `ctx.attachments`，不 import 宿主包）；组合中没有附件存储时 `screenshot: true` 会明确失败，`false` 不受影响。**真实宿主中的模型可见性尚未验证。**
+- `safe_win_observe` 的 `screenshot` 现在可用：截图经宿主附件服务存为 durable 引用，模型可看到图像块。图像字节不进入结果 JSON（按服务名取 `ctx.attachments`，不 import 宿主包）；组合中没有附件存储时 `screenshot: true` 会明确失败，`false` 不受影响。**已在真实宿主中验证（2026-10-13）：对记事本窗口 `screenshot: true`，结果 JSON 只含 `attachmentId`/`mediaType`/尺寸/字节数（51331），字节未进 JSON；图像送达模型并与无障碍树一致（可见 `行 2，列 11`、`49 个字符`、CRLF/UTF-8 状态栏），附件也确实落在 `~/.dsh/attachments`。**
 - SDK 的 npm 包不含 `cua-driver.exe`；私有 worker 需要另行安装固定版本的 Windows release。插件安装后在 **设置侧栏** 出现一个「电脑操控 / Computer Use」分区（同一个包名同时挂载 Host 与浏览器两半），Host 常驻在认证 API 通道上注册 `/api/computer-use-safe-win/status` 与 `/api/computer-use-safe-win/install` 两条路由，该分区提供「测试驱动」与「安装驱动」两个按钮。
   - 「测试驱动」只读受管目录，返回目标版本、已安装版本与平台支持情况；版本来自固定 checksum 的官方发行包，**未启动驱动验证**，因此界面显示「受管驱动已安装（未启动验证）」。
   - 「安装驱动」需本机浏览器同源 POST：`Host` 头必须是回环地址（`127.0.0.1`、`localhost` 或 `[::1]`）、请求头标记 same-origin、且带显式确认头；远程 Host、跨源或缺少 `Host` 的请求返回 403，不会下载任何内容；同一时刻只允许一次安装。
@@ -33,6 +33,18 @@
 - 每个状态改变动作需要一次明确用户批准；审批拒绝、缺失、取消或目标变化均拒绝执行。
 - 后台输入拒绝不能自动回退前台；取消不能撤销已送出的输入；动作后重新观察不等于业务目标已验证。
 - 未经用户针对具体运行批准，不枚举真实桌面、不截图、不发输入。live 验收仅在批准后的隔离 fixture/VM 中进行。
+
+### 坐标点击（0.1.16 起，默认关闭）
+
+多数程序会向 Windows 登记无障碍（UIA）树，因此本插件能给出「按钮叫什么、第几个」这样的**元素身份**；自绘界面的程序没有这棵树，只能看像素。为了覆盖这类窗口，0.1.16 增加了 `safe_win_click_at`：坐标从观察截图上读，按**窗口内像素**投递。
+
+这确实放松了一条旧约束，必须写清楚：
+
+- **被有意删除的禁令**：旧测试断言「适配器中不得出现 `ClickPosition.Coordinates`」，用它从代码层保证插件永不接受坐标。现在这条断言被删除，换成「坐标必须落在当前窗口内、且以后台方式投递」。
+- 换来的护栏（每条都有测试）：默认**关闭**；坐标必须在**重新读取**的窗口边界内，越界在触碰驱动前就被拒；投递固定 `Background`，不抬升窗口、不移动系统指针；单会话点击**预算**（默认 5，上限 50）用尽即拒绝，**不重试**；结果里固定带 `confirmed: false`，因为驱动的自述从来不是证据，必须由调用方重新观察确认。
+- **仍然不做**：文字输入与按键（需要前台焦点，live 实测后台输入无效）；元素点击路径保留不动，两条路并存——有树用身份，无树才用坐标。
+
+设置项都在「电脑操控」分区：**启用坐标点击**（默认关）与**单会话点击上限**（默认 5）。**坐标点击尚未在真实宿主中做过 live 验收**，本版交付的是「代码就绪、护栏齐备、默认关闭」。
 
 ## 开发与交接
 
@@ -54,7 +66,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.15
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.16
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「刷新驱动状态」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。独占注册表 `@deepseek-ai/dsh-computer-use` 是可选的，挂载方法见 0.1.10 一节。
@@ -249,6 +261,14 @@ v0.1.9 之后仍有两个真实缺陷：
 - npm 查不到 → **仍然给出 `@<DSH 版本>`**，另加一行「未查询到 npm 版本列表，直接采用当前 DSH 版本」；不会因此丢掉版本号
 
 **升级步骤**：改地址为 `#v0.1.15` → 浏览器硬刷新。命令里应稳定显示 `@0.2.1-alpha.1`。
+
+### 0.1.15 → 0.1.16（可选的像素点击路径）
+
+新增 `safe_win_click_at`，用于没有无障碍树的窗口；**默认关闭**，由「电脑操控」分区里的两个新设置项控制（启用坐标点击、单会话点击上限）。护栏、删除的旧禁令、以及「文字输入与按键仍不开放」的理由见上文「坐标点击」一节。
+
+**升级步骤**：改地址为 `#v0.1.16` → 重启 DSH（Host 半新增了一个工具与两个设置字段）→ 打开「电脑操控」，默认应看到「启用坐标点击」处于关闭状态。
+
+**尚未验证**：坐标点击在真实宿主中的落点与后台投递效果**没有 live 验收**，需要你本人开启开关后实测。
 
 ## 许可证
 

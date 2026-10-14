@@ -63,7 +63,7 @@ test('the plugin entry loads with no DSH host package resolvable', async () => {
   assert.equal(typeof entry.apply, 'function')
   assert.equal(typeof entry.startSafeWinProvider, 'function')
   assert.equal(typeof entry.Config.toJSON, 'function', 'Settings requires a serializable Schemastery schema')
-  assert.deepEqual(Object.keys(entry.Config.dict).sort(), ['allowedApps', 'enabled'])
+  assert.deepEqual(Object.keys(entry.Config.dict).sort(), ['allowCoordinateClicks', 'allowedApps', 'clickBudgetPerSession', 'enabled'])
 })
 
 test('compiled parameters match the host defineTool projection', async () => {

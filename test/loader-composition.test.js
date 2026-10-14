@@ -73,12 +73,12 @@ async function boot({ allowedApps = ['notepad.exe'], runtimeFactory } = {}) {
   return { ctx, runtime: () => runtime, registrations, cleanup: async () => { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) } }
 }
 
-test('the real Loader exposes only two inspection tools and guidance', async () => {
+test('the real Loader exposes the inspection tools and guidance', async () => {
   const { ctx, registrations, cleanup } = await boot()
   try {
     assert.deepEqual(registrations, ['safe-win'])
     const names = ctx.tools.schemas().map(schema => schema.name)
-    assert.deepEqual(names.sort(), ['safe_win_list_windows', 'safe_win_observe'])
+    assert.deepEqual(names.sort(), ['safe_win_click_at', 'safe_win_list_windows', 'safe_win_observe'])
     const assembled = await ctx.systemPrompt.assemble({})
     const prompt = assembled.sections.map(section => section.text).join('\n')
     assert.match(prompt, /no desktop input actions/)

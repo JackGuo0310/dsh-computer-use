@@ -251,6 +251,48 @@ export class CuaRuntime {
   }
 
   /**
+   * Deliver one click at a point inside a target window's client area.
+   *
+   * This is the pixel path for windows that expose no accessibility tree, so the
+   * caller has no element identity — only a coordinate read off an image. Every
+   * guard the element path has is kept, and one is added:
+   *
+   * - the position must be a finite integer pair inside the CURRENT window
+   *   bounds, re-read immediately before the click, so a point cannot escape
+   *   the allowlisted window onto another window or another display;
+   * - delivery stays `Background` and the target stays the window, so this never
+   *   raises the window, never moves the system pointer, and cannot become a
+   *   desktop-wide click;
+   * - the driver still reports its own outcome, which is NOT evidence. Confirm
+   *   the click from a fresh observation of the same window.
+   *
+   * @param target - Frozen window identity from a fresh listing.
+   * @param point - `{ x, y }` in window coordinates, as read off an observation image.
+   * @param signal - Optional abort signal.
+   * @returns Projected action result with effect, route, and delivery status.
+   */
+  clickAt(target, point, signal) {
+    if (typeof point?.x !== 'number' || typeof point?.y !== 'number') return Promise.reject(new Error('a click point needs numeric x and y'))
+    if (!Number.isInteger(point.x) || !Number.isInteger(point.y)) return Promise.reject(new Error('a click point must use whole pixels'))
+    return this.#enqueue(async () => {
+      const current = await this.#window(target.pid, target.windowId)
+      if (current.app !== target.app || !current.isOnScreen || current.minimized) throw new Error('Cua window identity changed before action')
+      const { width, height } = current.bounds
+      if (point.x < 0 || point.y < 0 || point.x >= width || point.y >= height) {
+        throw new Error(`click point (${point.x}, ${point.y}) is outside the window ${width}x${height}; observe again and use window-relative coordinates`)
+      }
+      const result = await this.#driver.click({
+        target: new ActionTarget.Window({ pid: target.pid, windowId: target.windowId }),
+        position: new ClickPosition.Coordinates({ x: point.x, y: point.y }),
+        deliveryMode: InputDeliveryMode.Background,
+        button: ClickButton.Left,
+        count: 1,
+      })
+      return projectActionResult(result)
+    }, signal)
+  }
+
+  /**
    * Type literal text into a target window.
    *
    * Unlike `click`, `typeText` declares no delivery mode and returns a plain
