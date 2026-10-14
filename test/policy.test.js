@@ -44,7 +44,7 @@ test('rejects disallowed, forbidden, dangerous, or malformed windows', () => {
     { ...valid(), app: 'other.exe' },
     { ...valid(), app: 'powershell.exe' },
     { ...valid(), title: 'Password prompt' },
-    { ...valid(), title: 'Fixture - Security settings' },
+    { ...valid(), title: 'Enter your verification code' },
     { ...valid(), title: '   ' },
     { ...valid(), title: 'x'.repeat(513) },
     { ...valid(), pid: 0 },
@@ -52,6 +52,41 @@ test('rejects disallowed, forbidden, dangerous, or malformed windows', () => {
     { ...valid(), isOnScreen: false },
     { ...valid(), minimized: true },
   ]) assert.throws(() => validateWindow(window, allowed))
+})
+
+test('a refusal names the reason instead of a bare refusal', () => {
+  const allowed = configuredApps(['fixture.exe'])
+  // A person must be able to tell "this is a password prompt" (intentional)
+  // from "this title mentions a scary word" (a bug worth reporting).
+  assert.throws(
+    () => validateWindow({ ...valid(), title: 'Sign in to continue' }, allowed),
+    /refusing to observe this window: the title contains "Sign in"/,
+  )
+  assert.throws(() => validateWindow({ ...valid(), app: 'powershell.exe' }, allowed), /powershell\.exe is on the application denylist/)
+  assert.throws(() => validateWindow({ ...valid(), app: 'other.exe' }, allowed), /other\.exe is not in the allowlist/)
+  assert.throws(() => validateWindow({ ...valid(), title: '   ' }, allowed), /the window has no title/)
+})
+
+test('an ordinary title is never refused for mentioning a sensitive-sounding word', () => {
+  // Regression, found live: the title check reused the application denylist and
+  // a broad word list, so a Chrome tab titled after this very project could not
+  // be observed at all. Only a phrase that means "this window asks for a secret
+  // or a payment" may refuse.
+  const allowed = configuredApps(['chrome.exe'])
+  for (const title of [
+    '分析 EA-I16 编程手册协议内容 — DeepSeek Harness - Google Chrome',
+    '软件安装指南 - Docs',
+    'How to send an email - Inbox',
+    '删除旧版本的步骤 - 知识库',
+    'Fixture - Security settings',
+    'Publish your post',
+    'Submit a support ticket',
+  ]) {
+    assert.doesNotThrow(
+      () => validateWindow({ ...valid(), app: 'chrome.exe', title }, allowed),
+      `"${title}" must stay observable`,
+    )
+  }
 })
 
 test('window validation does not mutate supplied Cua data', () => {

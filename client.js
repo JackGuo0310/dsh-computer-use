@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({
     const PACKAGE_NAME = 'dsh-computer-use-safe-win'
     // Kept in lockstep with package.json by `test/client-bundle.test.js`: the
     // section has no build step that could inject the manifest's version.
-    const PLUGIN_VERSION = '0.1.17'
+    const PLUGIN_VERSION = '0.1.18'
     const EXECUTABLE_NAME = /^[\w.-]{1,128}\.exe$/i
     const EXECUTABLE_PATH = /^[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n]+[\\/])*[^\\/:*?"<>|\r\n]+\.exe$/i
     const TEXT = {

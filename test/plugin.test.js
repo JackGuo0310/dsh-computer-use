@@ -136,7 +136,7 @@ test('the allowlist is read per call, so an edit applies to the next call', asyn
   const first = await tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows'))
   assert.equal(first.windows.length, 1)
   provider.live.allowedApps = ['other.exe']
-  await assert.rejects(tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows')), /outside the allowlist/)
+  await assert.rejects(tool(h.state, 'safe_win_list_windows').execute({}, exec('safe_win_list_windows')), /notepad\.exe is not in the allowlist/)
   assert.equal(provider.starts(), 1, 'the worker is started once and reused')
   await provider.dispose()
 })

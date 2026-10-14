@@ -66,7 +66,7 @@
 
 ```sh
 # 在 DSH 插件管理器 → 添加插件（公开仓库，无需 SSH key）
-git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.17
+git+https://github.com/JackGuo0310/dsh-computer-use.git#v0.1.18
 ```
 
 安装后在设置侧栏打开「电脑操控 / Computer Use」分区，先「刷新驱动状态」确认状态，再按需「安装驱动」。启用观察还需在插件配置里写入 `allowedApps` 并把 `enabled` 置为 `true`。独占注册表 `@deepseek-ai/dsh-computer-use` 是可选的，挂载方法见 0.1.10 一节。
@@ -279,6 +279,17 @@ v0.1.9 之后仍有两个真实缺陷：
 
 **升级步骤**：改地址为 #v0.1.17 → 重启 DSH。
 
+### 0.1.17 → 0.1.18（窗口标题拦截不再误伤，并说明原因）
+
+0.1.17 观察 Chrome 时报 DriverError.Tool，根因是本插件自己的标题拦截：FORBIDDEN（原本给**应用名**用的黑名单，含 dsh/deepseek）被同时拿去匹配**窗口标题**，而标题是程序自选的自由文本。于是标题里提到本项目的 Chrome 标签页直接不可观察；DANGEROUS_WINDOW 里还有 send/post/install/安全 这类日常词，误伤面更大。
+
+- **应用名黑名单只管进程身份**：终端、密码管理器、dsh.exe 之类仍然永远不可列为观察目标（对白名单与窗口身份都生效）。
+- **标题只拦高置信度敏感词**：密码、口令、验证码、登录/登入、支付/购买/结账/转账。install、send、删除、安全、权限 等会撞上普通内容的词已移除。
+- **拒绝时说明原因**：efusing to observe this window: the title contains "Sign in"，或 chrome.exe is not in the allowlist、powershell.exe is on the application denylist。过去统一报 window title is unsafe，无法区分「这是密码框」与「标题里碰巧有个吓人的词」——这个模糊的错误也让本轮排障绕了远路。
+
+**已验证**：以真实 Chrome 窗口（标题含 DeepSeek）与记事本窗口跑本仓库代码，两个窗口都通过；Chrome 树读出 54 个元素。
+
+**升级步骤**：改地址为 #v0.1.18 → 重启 DSH。
 ## 许可证
 
 [MIT](<LICENSE>) License，Copyright (c) 2026 Jack Guo。

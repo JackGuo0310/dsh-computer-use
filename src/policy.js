@@ -1,5 +1,33 @@
 const FORBIDDEN = /(?:^|[^a-z])(cmd|powershell|pwsh|terminal|windows terminal|conhost|wt|bash|wsl|ssh|putty|keepass|1password|bitwarden|dsh|deepseek|regedit|taskmgr|mmc|consent|credentialui|logonui)(?:\.exe)?(?:$|[^a-z])/i
-const DANGEROUS_WINDOW = /password|passcode|otp|verification|security|permission|sign[ -]?in|log[ -]?in|payment|purchase|checkout|transfer|delete|remove|erase|send|submit|post|publish|install|administrator|elevat|密码|验证码|登录|支付|购买|转账|删除|发送|提交|安装|权限|安全/i
+/**
+ * Titles that indicate the window itself is a secret-entry surface.
+ *
+ * This list is deliberately short and high-confidence. It is matched against a
+ * window TITLE, which is free-form text a program chooses: a browser tab, a
+ * document name, a page heading. An earlier version reused the application-name
+ * denylist here and carried ordinary words (`send`, `post`, `install`,
+ * `安全`, …), which refused ordinary windows — a Chrome tab whose title merely
+ * mentioned this project was unobservable. What belongs here is only a phrase
+ * that means "this window is asking for a secret or a payment".
+ */
+const SENSITIVE_TITLE = /password|passcode|passphrase|one[ -]?time (?:code|password)|\botp\b|verification code|sign[ -]?in|log[ -]?in|credential|payment|checkout|purchase|billing|transfer|密码|口令|验证码|动态口令|登录|登入|支付|购买|结账|付款|转账/i
+
+/**
+ * Name the reason a title was refused, or undefined when it is acceptable.
+ *
+ * The caller reports this verbatim, so a person can tell "this window is a
+ * password prompt" from "this title happens to contain a scary word" — the
+ * difference between a fixable setup problem and an intentional refusal.
+ *
+ * @param title - Raw window title from the driver.
+ * @returns The matched phrase, or undefined.
+ */
+export function sensitiveTitleReason(title) {
+  if (typeof title !== 'string' || !title.trim()) return 'the window has no title'
+  if (title.length > 512) return 'the window title is longer than 512 characters'
+  const match = SENSITIVE_TITLE.exec(title)
+  return match === null ? undefined : `the title contains "${match[0]}"`
+}
 
 /**
  * Windows executable filename accepted by the allowlist: a bare basename, never a
@@ -149,8 +177,13 @@ export function validateWindow(window, allowedApps) {
   if (!window || typeof window !== 'object' || !Number.isSafeInteger(window.pid) || window.pid <= 0) throw new Error('invalid Cua window process identity')
   if (typeof window.windowId !== 'bigint' || window.windowId <= 0n) throw new Error('invalid Cua window identity')
   const app = appName(window.app)
-  if (!allowedApps.matches({ name: app, path: window.path === undefined ? undefined : executablePath(window.path) }) || FORBIDDEN.test(app)) throw new Error('window is outside the allowlist')
-  if (typeof window.title !== 'string' || !window.title.trim() || window.title.length > 512 || FORBIDDEN.test(window.title) || DANGEROUS_WINDOW.test(window.title)) throw new Error('window title is unsafe')
+  // The application denylist belongs HERE, on process identity: it stops a
+  // terminal or password manager from ever being an observation target. It must
+  // not be applied to a title, where a browser tab or document name is free text.
+  if (FORBIDDEN.test(app)) throw new Error(`${app} is on the application denylist and is never observable`)
+  if (!allowedApps.matches({ name: app, path: window.path === undefined ? undefined : executablePath(window.path) })) throw new Error(`${app} is not in the allowlist`)
+  const sensitive = sensitiveTitleReason(window.title)
+  if (sensitive !== undefined) throw new Error(`refusing to observe this window: ${sensitive}`)
   if (!window.bounds || ![window.bounds.x, window.bounds.y, window.bounds.width, window.bounds.height].every(Number.isFinite) || window.bounds.width <= 0 || window.bounds.height <= 0) throw new Error('invalid window geometry')
   if (window.isOnScreen !== true || window.minimized === true) throw new Error('window is not currently visible')
   return Object.freeze({
